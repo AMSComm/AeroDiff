@@ -337,7 +337,8 @@ export async function invokeCompareFolders(
 function computeLocalCsvDiff(
   leftContent: string,
   rightContent: string,
-  keyColumn?: string
+  keyColumn?: string,
+  options?: DiffOptions
 ): CsvCompareResult {
   const delimiter = leftContent.includes('\t') || rightContent.includes('\t') ? '\t' : ',';
   const leftLines = leftContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
@@ -366,7 +367,25 @@ function computeLocalCsvDiff(
       const cells: import('../types/diff').CsvCellDiff[] = headers.map((h, colIdx) => {
         const lv = lRow[colIdx] ?? '';
         const rv = rRow[colIdx] ?? '';
-        const cellDiff = lv !== rv;
+
+        let cellDiff = lv !== rv;
+        if (options) {
+          let lNorm = lv;
+          let rNorm = rv;
+          if (options.ignore_case) {
+            lNorm = lNorm.toLowerCase();
+            rNorm = rNorm.toLowerCase();
+          }
+          if (options.ignore_whitespace === 'All') {
+            lNorm = lNorm.replace(/\s+/g, '');
+            rNorm = rNorm.replace(/\s+/g, '');
+          } else if (options.ignore_whitespace === 'LeadingAndTrailing') {
+            lNorm = lNorm.trim();
+            rNorm = rNorm.trim();
+          }
+          cellDiff = lNorm !== rNorm;
+        }
+
         if (cellDiff) isDiff = true;
         return {
           col_index: colIdx,
@@ -437,7 +456,8 @@ function computeLocalCsvDiff(
 export async function invokeCompareCsv(
   leftContent: string,
   rightContent: string,
-  keyColumn?: string
+  keyColumn?: string,
+  options?: DiffOptions
 ): Promise<CsvCompareResult> {
   if (isTauri()) {
     try {
@@ -446,10 +466,11 @@ export async function invokeCompareCsv(
         leftContent,
         rightContent,
         keyColumn: keyColumn || null,
+        options: options || null,
       });
     } catch (err) {
       console.warn('Tauri compare_csv_cmd error, using local fallback:', err);
     }
   }
-  return computeLocalCsvDiff(leftContent, rightContent, keyColumn);
+  return computeLocalCsvDiff(leftContent, rightContent, keyColumn, options);
 }

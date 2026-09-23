@@ -269,7 +269,7 @@ export const useTabStore = create<TabState>((set, get) => ({
     }));
 
     try {
-      const res = await invokeCompareCsv(lContent, rContent);
+      const res = await invokeCompareCsv(lContent, rContent, undefined, newTab.options);
       get().updateActiveTab({ csvResult: res, isComputing: false });
     } catch (e) {
       console.error('Failed to compare CSV:', e);
@@ -381,7 +381,7 @@ export const useTabStore = create<TabState>((set, get) => ({
     if (targetType === 'csv') {
       try {
         const [csvRes, diffRes] = await Promise.all([
-          invokeCompareCsv(safeL, safeR),
+          invokeCompareCsv(safeL, safeR, undefined, activeTab.options),
           invokeCompareText(safeL, safeR, activeTab.options),
         ]);
         get().updateActiveTab({
@@ -506,10 +506,23 @@ export const useTabStore = create<TabState>((set, get) => ({
     const start = performance.now();
 
     try {
-      const result = await invokeCompareText(active.leftContent, active.rightContent, active.options);
+      const isCsv =
+        active.type === 'csv' ||
+        active.csvViewMode === 'table' ||
+        Boolean(active.leftPath?.toLowerCase().endsWith('.csv')) ||
+        Boolean(active.rightPath?.toLowerCase().endsWith('.csv'));
+
+      const [diffResult, csvResult] = await Promise.all([
+        invokeCompareText(active.leftContent, active.rightContent, active.options),
+        isCsv
+          ? invokeCompareCsv(active.leftContent, active.rightContent, undefined, active.options)
+          : Promise.resolve(active.csvResult),
+      ]);
+
       const duration = Math.round(performance.now() - start);
       get().updateActiveTab({
-        diffResult: result,
+        diffResult,
+        csvResult,
         isComputing: false,
         computeTimeMs: duration,
         activeChunkIndex: 0,

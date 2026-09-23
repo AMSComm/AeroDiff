@@ -2,7 +2,33 @@ import React, { useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { CheckCircle2, ArrowRight, ArrowLeft } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
-import { DiffLine } from '../../types/diff';
+import { DiffLine, DiffOptions } from '../../types/diff';
+
+/**
+ * Compare two cell values taking into account active diff options (case, whitespace)
+ */
+function areCellsEqual(left: string, right: string, options?: DiffOptions): boolean {
+  if (left === right) return true;
+  if (!options) return false;
+
+  let l = left;
+  let r = right;
+
+  if (options.ignore_case) {
+    l = l.toLowerCase();
+    r = r.toLowerCase();
+  }
+
+  if (options.ignore_whitespace === 'All') {
+    l = l.replace(/\s+/g, '');
+    r = r.replace(/\s+/g, '');
+  } else if (options.ignore_whitespace === 'LeadingAndTrailing') {
+    l = l.trim();
+    r = r.trim();
+  }
+
+  return l === r;
+}
 
 /**
  * Fast CSV line splitter handling commas, tabs, semicolons, and quoted values
@@ -48,6 +74,7 @@ export const CsvCompareView: React.FC = () => {
   const isSyncingScroll = useRef(false);
 
   const diffResult = activeTab?.diffResult;
+  const options = activeTab?.options;
   const lines: DiffLine[] = useMemo(() => diffResult?.lines || [], [diffResult]);
   const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
 
@@ -205,6 +232,17 @@ export const CsvCompareView: React.FC = () => {
                   const isModified = line.line_type === 'Modified';
                   const isDeleted = line.line_type === 'Deleted';
 
+                  const hasAnyDiffCell =
+                    isModified &&
+                    leftCells !== null &&
+                    rightCells !== null &&
+                    Array.from({ length: maxCols }).some((_, cIdx) => {
+                      const lv = leftCells[cIdx] ?? '';
+                      const rv = rightCells?.[cIdx] ?? '';
+                      return !areCellsEqual(lv, rv, options);
+                    });
+                  const showModifiedBg = isModified && hasAnyDiffCell;
+
                   return (
                     <div
                       key={virtualRow.index}
@@ -213,7 +251,7 @@ export const CsvCompareView: React.FC = () => {
                       } ${
                         isDeleted
                           ? 'bg-rose-500/10'
-                          : isModified
+                          : showModifiedBg
                           ? 'bg-amber-500/5'
                           : leftCells === null
                           ? 'bg-neutral-900/60'
@@ -235,7 +273,7 @@ export const CsvCompareView: React.FC = () => {
                           Array.from({ length: maxCols }).map((_, cIdx) => {
                             const cellVal = leftCells[cIdx] ?? '';
                             const rightVal = rightCells?.[cIdx] ?? '';
-                            const isDiffCell = isModified && cellVal !== rightVal;
+                            const isDiffCell = isModified && !areCellsEqual(cellVal, rightVal, options);
 
                             return (
                               <div
@@ -391,6 +429,17 @@ export const CsvCompareView: React.FC = () => {
                   const isModified = line.line_type === 'Modified';
                   const isAdded = line.line_type === 'Added';
 
+                  const hasAnyDiffCell =
+                    isModified &&
+                    leftCells !== null &&
+                    rightCells !== null &&
+                    Array.from({ length: maxCols }).some((_, cIdx) => {
+                      const lv = leftCells?.[cIdx] ?? '';
+                      const rv = rightCells[cIdx] ?? '';
+                      return !areCellsEqual(lv, rv, options);
+                    });
+                  const showModifiedBg = isModified && hasAnyDiffCell;
+
                   return (
                     <div
                       key={virtualRow.index}
@@ -399,7 +448,7 @@ export const CsvCompareView: React.FC = () => {
                       } ${
                         isAdded
                           ? 'bg-emerald-500/10'
-                          : isModified
+                          : showModifiedBg
                           ? 'bg-amber-500/5'
                           : rightCells === null
                           ? 'bg-neutral-900/60'
@@ -421,7 +470,7 @@ export const CsvCompareView: React.FC = () => {
                           Array.from({ length: maxCols }).map((_, cIdx) => {
                             const cellVal = rightCells[cIdx] ?? '';
                             const leftVal = leftCells?.[cIdx] ?? '';
-                            const isDiffCell = isModified && cellVal !== leftVal;
+                            const isDiffCell = isModified && !areCellsEqual(cellVal, leftVal, options);
 
                             return (
                               <div

@@ -2,6 +2,7 @@
 mod tests {
     use crate::csv::engine::{compare_csv, detect_delimiter};
     use crate::csv::types::CsvRowStatus;
+    use crate::diff::options::{DiffOptions, IgnoreWhitespace};
 
     #[test]
     fn test_detect_delimiter() {
@@ -16,7 +17,7 @@ mod tests {
         let csv1 = "id,name,price\n1,Apple,10\n2,Banana,20";
         let csv2 = "id,name,price\n1,Apple,10\n2,Banana,20";
 
-        let result = compare_csv(csv1, csv2, Some("id")).unwrap();
+        let result = compare_csv(csv1, csv2, Some("id"), None).unwrap();
         assert_eq!(result.total_rows, 2);
         assert_eq!(result.identical_rows, 2);
         assert_eq!(result.modified_rows, 0);
@@ -27,7 +28,7 @@ mod tests {
         let csv1 = "id,name,price\n1,Apple,10\n2,Banana,20";
         let csv2 = "id,name,price\n1,Apple,12\n2,Banana,20";
 
-        let result = compare_csv(csv1, csv2, Some("id")).unwrap();
+        let result = compare_csv(csv1, csv2, Some("id"), None).unwrap();
         assert_eq!(result.total_rows, 2);
         assert_eq!(result.identical_rows, 1);
         assert_eq!(result.modified_rows, 1);
@@ -45,10 +46,52 @@ mod tests {
         let csv1 = "id,name\n1,Alice\n2,Bob";
         let csv2 = "id,name\n1,Alice\n3,Charlie";
 
-        let result = compare_csv(csv1, csv2, Some("id")).unwrap();
+        let result = compare_csv(csv1, csv2, Some("id"), None).unwrap();
         assert_eq!(result.total_rows, 3);
         assert_eq!(result.identical_rows, 1);
         assert_eq!(result.deleted_rows, 1); // 2,Bob deleted
         assert_eq!(result.added_rows, 1); // 3,Charlie added
+    }
+
+    #[test]
+    fn test_compare_csv_ignore_case() {
+        let csv1 = "id,name,category\n1,Apple,FRUIT\n2,Carrot,VEGGIE";
+        let csv2 = "id,name,category\n1,apple,fruit\n2,carrot,veggie";
+
+        let mut opts = DiffOptions::default();
+        opts.ignore_case = true;
+
+        let result = compare_csv(csv1, csv2, Some("id"), Some(&opts)).unwrap();
+        assert_eq!(result.total_rows, 2);
+        assert_eq!(result.identical_rows, 2);
+        assert_eq!(result.modified_rows, 0);
+
+        for row in &result.rows {
+            assert_eq!(row.status, CsvRowStatus::Unchanged);
+            for cell in &row.cells {
+                assert!(!cell.is_diff);
+            }
+        }
+    }
+
+    #[test]
+    fn test_compare_csv_ignore_whitespace() {
+        let csv1 = "id,name,price\n1, Apple ,10\n2,Banana, 20 ";
+        let csv2 = "id,name,price\n1,Apple,10\n2,Banana,20";
+
+        let mut opts = DiffOptions::default();
+        opts.ignore_whitespace = IgnoreWhitespace::LeadingAndTrailing;
+
+        let result = compare_csv(csv1, csv2, Some("id"), Some(&opts)).unwrap();
+        assert_eq!(result.total_rows, 2);
+        assert_eq!(result.identical_rows, 2);
+        assert_eq!(result.modified_rows, 0);
+
+        for row in &result.rows {
+            assert_eq!(row.status, CsvRowStatus::Unchanged);
+            for cell in &row.cells {
+                assert!(!cell.is_diff);
+            }
+        }
     }
 }

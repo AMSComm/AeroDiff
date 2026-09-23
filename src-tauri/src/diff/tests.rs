@@ -175,4 +175,73 @@ mod tests {
         assert_eq!(hash1, hash2);
         assert_ne!(hash1, hash3);
     }
+
+    #[test]
+    fn test_modified_line_with_ignore_case_inline() {
+        let left = "User: Alice";
+        let right = "user: Bob";
+        let mut options = DiffOptions::default();
+        options.ignore_case = true;
+
+        let result = compute_diff(left, right, &options);
+        assert!(!result.is_identical);
+        assert_eq!(result.chunks.len(), 1);
+
+        let line = &result.lines[0];
+        assert_eq!(line.line_type, DiffLineType::Modified);
+
+        // Verify "User: " / "user: " is NOT highlighted because ignore_case is active
+        let left_highlights: Vec<_> = line.left_inline.iter().filter(|s| s.highlight).collect();
+        let right_highlights: Vec<_> = line.right_inline.iter().filter(|s| s.highlight).collect();
+
+        // Only "Alice" (length 5) and "Bob" (length 3) should be highlighted
+        assert_eq!(left_highlights.len(), 1);
+        assert_eq!(left_highlights[0].end - left_highlights[0].start, 5); // "Alice"
+
+        assert_eq!(right_highlights.len(), 1);
+        assert_eq!(right_highlights[0].end - right_highlights[0].start, 3); // "Bob"
+    }
+
+    #[test]
+    fn test_modified_line_with_ignore_whitespace_inline() {
+        let left = "  let x = 1;";
+        let right = "let x = 2;";
+        let mut options = DiffOptions::default();
+        options.ignore_whitespace = IgnoreWhitespace::LeadingAndTrailing;
+
+        let result = compute_diff(left, right, &options);
+        assert!(!result.is_identical);
+        assert_eq!(result.chunks.len(), 1);
+
+        let line = &result.lines[0];
+        assert_eq!(line.line_type, DiffLineType::Modified);
+
+        // Leading spaces should NOT be highlighted
+        let left_highlights: Vec<_> = line.left_inline.iter().filter(|s| s.highlight).collect();
+        let right_highlights: Vec<_> = line.right_inline.iter().filter(|s| s.highlight).collect();
+
+        assert_eq!(left_highlights.len(), 1);
+        assert_eq!(&left[left_highlights[0].start..left_highlights[0].end], "1");
+
+        assert_eq!(right_highlights.len(), 1);
+        assert_eq!(&right[right_highlights[0].start..right_highlights[0].end], "2");
+    }
+
+    #[test]
+    fn test_lines_differ_only_by_ignored_attributes_no_chunk() {
+        let left = "  Hello  \nWorld\n\n";
+        let right = "hello\nworld";
+        let mut options = DiffOptions::default();
+        options.ignore_whitespace = IgnoreWhitespace::LeadingAndTrailing;
+        options.ignore_case = true;
+        options.ignore_blank_lines = true;
+
+        let result = compute_diff(left, right, &options);
+        assert!(result.is_identical);
+        assert_eq!(result.chunks.len(), 0);
+        for line in &result.lines {
+            assert_eq!(line.line_type, DiffLineType::Unchanged);
+            assert!(line.chunk_id.is_none());
+        }
+    }
 }

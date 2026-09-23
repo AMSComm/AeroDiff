@@ -89,135 +89,103 @@ pub fn compute_diff(left: &str, right: &str, options: &DiffOptions) -> DiffResul
     let mut current_inserts: Vec<(usize, &str)> = Vec::new(); // (orig_line_num, text)
 
     let flush_changes = |deletes: &mut Vec<(usize, &str)>,
-                             inserts: &mut Vec<(usize, &str)>,
-                             res_lines: &mut Vec<DiffLine>,
-                             chunks: &mut Vec<DiffChunk>,
-                             added_cnt: &mut usize,
-                             del_cnt: &mut usize,
-                             mod_cnt: &mut usize| {
+                         inserts: &mut Vec<(usize, &str)>,
+                         res_lines: &mut Vec<DiffLine>,
+                         chunks: &mut Vec<DiffChunk>,
+                         added_cnt: &mut usize,
+                         del_cnt: &mut usize,
+                         mod_cnt: &mut usize| {
         if deletes.is_empty() && inserts.is_empty() {
             return;
         }
 
-        // Check if all deletes and inserts should be ignored (e.g. blank lines or regex filter)
-        let only_ignored_deletes = !deletes.is_empty() && deletes.iter().all(|(_, t)| options.should_ignore_line(t));
-        let only_ignored_inserts = !inserts.is_empty() && inserts.iter().all(|(_, t)| options.should_ignore_line(t));
-
-        if only_ignored_deletes && inserts.is_empty() {
-            for (line_num, text) in deletes.drain(..) {
+        // Drain ignored deletes (e.g. blank lines or regex filter)
+        let mut active_deletes = Vec::new();
+        for (l_num, l_text) in deletes.drain(..) {
+            if options.should_ignore_line(l_text) {
                 res_lines.push(DiffLine {
-                    left_line_num: Some(line_num),
+                    left_line_num: Some(l_num),
                     right_line_num: None,
-                    left_text: Some(text.to_string()),
+                    left_text: Some(l_text.to_string()),
                     right_text: None,
                     line_type: DiffLineType::Unchanged,
                     left_inline: Vec::new(),
                     right_inline: Vec::new(),
                     chunk_id: None,
                 });
+            } else {
+                active_deletes.push((l_num, l_text));
             }
-            return;
         }
 
-        if only_ignored_inserts && deletes.is_empty() {
-            for (line_num, text) in inserts.drain(..) {
+        // Drain ignored inserts
+        let mut active_inserts = Vec::new();
+        for (r_num, r_text) in inserts.drain(..) {
+            if options.should_ignore_line(r_text) {
                 res_lines.push(DiffLine {
                     left_line_num: None,
-                    right_line_num: Some(line_num),
+                    right_line_num: Some(r_num),
                     left_text: None,
-                    right_text: Some(text.to_string()),
+                    right_text: Some(r_text.to_string()),
                     line_type: DiffLineType::Unchanged,
                     left_inline: Vec::new(),
                     right_inline: Vec::new(),
                     chunk_id: None,
                 });
+            } else {
+                active_inserts.push((r_num, r_text));
             }
+        }
+
+        if active_deletes.is_empty() && active_inserts.is_empty() {
             return;
         }
 
-        // Check if regex filter applies to differences: if a delete matches regex and an insert matches regex
-        let is_regex_matched = if deletes.len() == 1 && inserts.len() == 1 {
-            let (_, d_text) = &deletes[0];
-            let (_, i_text) = &inserts[0];
-            options.should_ignore_line(d_text) && options.should_ignore_line(i_text)
-        } else {
-            false
-        };
+        // Check if there are genuine differences
+        let max_len = active_deletes.len().max(active_inserts.len());
+        let mut paired_results = Vec::new();
+        let mut has_genuine_change = false;
+        let mut has_real_deletes = false;
+        let mut has_real_inserts = false;
 
-        if is_regex_matched {
-            let (d_num, d_text) = deletes.remove(0);
-            let (i_num, i_text) = inserts.remove(0);
-            res_lines.push(DiffLine {
-                left_line_num: Some(d_num),
-                right_line_num: Some(i_num),
-                left_text: Some(d_text.to_string()),
-                right_text: Some(i_text.to_string()),
-                line_type: DiffLineType::Unchanged,
-                left_inline: Vec::new(),
-                right_inline: Vec::new(),
-                chunk_id: None,
-            });
-            return;
-        }
-
-        let chunk_id = chunks.len();
-        let chunk_type = if !deletes.is_empty() && !inserts.is_empty() {
-            *mod_cnt += 1;
-            DiffChunkType::Modification
-        } else if !deletes.is_empty() {
-            *del_cnt += 1;
-            DiffChunkType::Deletion
-        } else {
-            *added_cnt += 1;
-            DiffChunkType::Addition
-        };
-
-        let chunk_left_start = deletes.first().map(|(n, _)| *n).unwrap_or(
-            // If addition, pick position where it will be inserted in left
-            res_lines.last().and_then(|l| l.left_line_num).unwrap_or(0) + 1,
-        );
-        let chunk_right_start = inserts.first().map(|(n, _)| *n).unwrap_or(
-            res_lines.last().and_then(|l| l.right_line_num).unwrap_or(0) + 1,
-        );
-
-        let left_lines_collected: Vec<String> =
-            deletes.iter().map(|(_, t)| t.to_string()).collect();
-        let right_lines_collected: Vec<String> =
-            inserts.iter().map(|(_, t)| t.to_string()).collect();
-
-        chunks.push(DiffChunk {
-            chunk_id,
-            left_start: chunk_left_start,
-            left_count: deletes.len(),
-            right_start: chunk_right_start,
-            right_count: inserts.len(),
-            chunk_type,
-            left_lines: left_lines_collected,
-            right_lines: right_lines_collected,
-        });
-
-        // Pair lines for Side-by-Side view
-        let max_len = deletes.len().max(inserts.len());
         for i in 0..max_len {
-            let left_item = deletes.get(i);
-            let right_item = inserts.get(i);
+            let left_item = active_deletes.get(i);
+            let right_item = active_inserts.get(i);
 
             match (left_item, right_item) {
                 (Some((l_num, l_text)), Some((r_num, r_text))) => {
-                    let (l_spans, r_spans) = compute_inline_diff(l_text, r_text);
-                    res_lines.push(DiffLine {
-                        left_line_num: Some(*l_num),
-                        right_line_num: Some(*r_num),
-                        left_text: Some(l_text.to_string()),
-                        right_text: Some(r_text.to_string()),
-                        line_type: DiffLineType::Modified,
-                        left_inline: l_spans,
-                        right_inline: r_spans,
-                        chunk_id: Some(chunk_id),
-                    });
+                    if options.normalize_line(l_text) == options.normalize_line(r_text) {
+                        paired_results.push(DiffLine {
+                            left_line_num: Some(*l_num),
+                            right_line_num: Some(*r_num),
+                            left_text: Some(l_text.to_string()),
+                            right_text: Some(r_text.to_string()),
+                            line_type: DiffLineType::Unchanged,
+                            left_inline: Vec::new(),
+                            right_inline: Vec::new(),
+                            chunk_id: None,
+                        });
+                    } else {
+                        has_genuine_change = true;
+                        has_real_deletes = true;
+                        has_real_inserts = true;
+                        let (l_spans, r_spans) = compute_inline_diff(l_text, r_text, options);
+                        paired_results.push(DiffLine {
+                            left_line_num: Some(*l_num),
+                            right_line_num: Some(*r_num),
+                            left_text: Some(l_text.to_string()),
+                            right_text: Some(r_text.to_string()),
+                            line_type: DiffLineType::Modified,
+                            left_inline: l_spans,
+                            right_inline: r_spans,
+                            chunk_id: None,
+                        });
+                    }
                 }
                 (Some((l_num, l_text)), None) => {
-                    res_lines.push(DiffLine {
+                    has_genuine_change = true;
+                    has_real_deletes = true;
+                    paired_results.push(DiffLine {
                         left_line_num: Some(*l_num),
                         right_line_num: None,
                         left_text: Some(l_text.to_string()),
@@ -225,11 +193,13 @@ pub fn compute_diff(left: &str, right: &str, options: &DiffOptions) -> DiffResul
                         line_type: DiffLineType::Deleted,
                         left_inline: Vec::new(),
                         right_inline: Vec::new(),
-                        chunk_id: Some(chunk_id),
+                        chunk_id: None,
                     });
                 }
                 (None, Some((r_num, r_text))) => {
-                    res_lines.push(DiffLine {
+                    has_genuine_change = true;
+                    has_real_inserts = true;
+                    paired_results.push(DiffLine {
                         left_line_num: None,
                         right_line_num: Some(*r_num),
                         left_text: None,
@@ -237,15 +207,75 @@ pub fn compute_diff(left: &str, right: &str, options: &DiffOptions) -> DiffResul
                         line_type: DiffLineType::Added,
                         left_inline: Vec::new(),
                         right_inline: Vec::new(),
-                        chunk_id: Some(chunk_id),
+                        chunk_id: None,
                     });
                 }
                 (None, None) => unreachable!(),
             }
         }
 
-        deletes.clear();
-        inserts.clear();
+        if !has_genuine_change {
+            res_lines.extend(paired_results);
+            return;
+        }
+
+        let chunk_id = chunks.len();
+        let chunk_type = if has_real_deletes && has_real_inserts {
+            *mod_cnt += 1;
+            DiffChunkType::Modification
+        } else if has_real_deletes {
+            *del_cnt += 1;
+            DiffChunkType::Deletion
+        } else {
+            *added_cnt += 1;
+            DiffChunkType::Addition
+        };
+
+        let chunk_left_start = paired_results
+            .iter()
+            .find(|l| l.line_type != DiffLineType::Unchanged && l.left_line_num.is_some())
+            .and_then(|l| l.left_line_num)
+            .unwrap_or_else(|| {
+                res_lines.last().and_then(|l| l.left_line_num).unwrap_or(0) + 1
+            });
+
+        let chunk_right_start = paired_results
+            .iter()
+            .find(|l| l.line_type != DiffLineType::Unchanged && l.right_line_num.is_some())
+            .and_then(|l| l.right_line_num)
+            .unwrap_or_else(|| {
+                res_lines.last().and_then(|l| l.right_line_num).unwrap_or(0) + 1
+            });
+
+        let left_lines_collected: Vec<String> = paired_results
+            .iter()
+            .filter(|l| l.line_type != DiffLineType::Unchanged)
+            .filter_map(|l| l.left_text.clone())
+            .collect();
+
+        let right_lines_collected: Vec<String> = paired_results
+            .iter()
+            .filter(|l| l.line_type != DiffLineType::Unchanged)
+            .filter_map(|l| l.right_text.clone())
+            .collect();
+
+        chunks.push(DiffChunk {
+            chunk_id,
+            left_start: chunk_left_start,
+            left_count: left_lines_collected.len(),
+            right_start: chunk_right_start,
+            right_count: right_lines_collected.len(),
+            chunk_type,
+            left_lines: left_lines_collected,
+            right_lines: right_lines_collected,
+        });
+
+        for mut line in paired_results {
+            if line.line_type != DiffLineType::Unchanged {
+                line.chunk_id = Some(chunk_id);
+            }
+            res_lines.push(line);
+        }
     };
 
     let mut left_idx = 0;

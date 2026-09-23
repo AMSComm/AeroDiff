@@ -216,9 +216,10 @@ pub async fn compare_csv_cmd(
     left_content: String,
     right_content: String,
     key_column: Option<String>,
+    options: Option<DiffOptions>,
 ) -> Result<CsvCompareResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        compare_csv(&left_content, &right_content, key_column.as_deref())
+        compare_csv(&left_content, &right_content, key_column.as_deref(), options.as_ref())
     })
     .await
     .map_err(|e| e.to_string())?

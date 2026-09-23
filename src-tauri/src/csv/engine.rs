@@ -1,4 +1,5 @@
 use super::types::{CsvCellDiff, CsvCompareResult, CsvRowDiff, CsvRowStatus};
+use crate::diff::options::DiffOptions;
 use csv::ReaderBuilder;
 use std::collections::{BTreeMap, HashSet};
 
@@ -42,6 +43,7 @@ pub fn compare_csv(
     left_content: &str,
     right_content: &str,
     key_column: Option<&str>,
+    options: Option<&DiffOptions>,
 ) -> Result<CsvCompareResult, String> {
     let delimiter = detect_delimiter(left_content);
 
@@ -132,7 +134,17 @@ pub fn compare_csv(
                 let l_val = l_col_idx.and_then(|i| l_vals.get(i)).cloned();
                 let r_val = r_col_idx.and_then(|i| r_vals.get(i)).cloned();
 
-                let is_diff = l_val != r_val;
+                let is_diff = match (&l_val, &r_val) {
+                    (Some(l), Some(r)) => {
+                        if let Some(opts) = options {
+                            opts.normalize_line(l) != opts.normalize_line(r)
+                        } else {
+                            l != r
+                        }
+                    }
+                    (None, None) => false,
+                    _ => true,
+                };
                 if is_diff {
                     has_diff = true;
                 }
