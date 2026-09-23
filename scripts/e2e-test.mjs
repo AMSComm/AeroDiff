@@ -315,12 +315,33 @@ async function run() {
     console.log('✅ Diff options correctly persisted in localStorage');
 
     // 7. Verify Horizontal Scroll Containers Exist (both Left and Right)
-    console.log('↔️ Verifying dual horizontal scroll containers...');
+    console.log('↔️ Verifying dual synchronized horizontal scrolling...');
     const scrollContainers = page.locator('.overflow-x-auto');
     const scrollCount = await scrollContainers.count();
     console.log(`Found ${scrollCount} scroll containers with overflow-x-auto`);
     if (scrollCount < 2) throw new Error('Dual scroll containers (left & right) are missing');
-    console.log('✅ Dual scroll containers with horizontal scrolling support are verified');
+
+    // Actively scroll left container and assert right container synchronizes
+    await page.evaluate(() => {
+      const leftEl = document.querySelector('.overflow-x-auto');
+      if (leftEl) {
+        leftEl.scrollLeft = 80;
+        leftEl.dispatchEvent(new Event('scroll'));
+      }
+    });
+    await page.waitForTimeout(100);
+
+    const scrollSyncVerified = await page.evaluate(() => {
+      const els = document.querySelectorAll('.overflow-x-auto');
+      if (els.length >= 2) {
+        return Math.abs(els[0].scrollLeft - els[1].scrollLeft) <= 2;
+      }
+      return false;
+    });
+    if (!scrollSyncVerified) {
+      throw new Error('Horizontal scroll was not synchronized between left and right containers!');
+    }
+    console.log('✅ Dual synchronized horizontal scrolling verified in lockstep!');
 
     // 8. Verify Ignored Differences (Whitespace, Case) are NOT marked as diffs
     console.log('🔍 Verifying Ignored Differences are not marked as diffs...');

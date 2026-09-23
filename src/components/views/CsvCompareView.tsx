@@ -169,6 +169,38 @@ export const CsvCompareView: React.FC = () => {
     }
   }, []);
 
+  const isSyncingHorizontal = useRef(false);
+
+  const handleLeftHorizontalScroll = useCallback(() => {
+    if (isSyncingHorizontal.current) return;
+    const left = leftContainerRef.current;
+    const right = rightContainerRef.current;
+    if (!left || !right) return;
+
+    if (Math.abs(right.scrollLeft - left.scrollLeft) > 1) {
+      isSyncingHorizontal.current = true;
+      right.scrollLeft = left.scrollLeft;
+      requestAnimationFrame(() => {
+        isSyncingHorizontal.current = false;
+      });
+    }
+  }, []);
+
+  const handleRightHorizontalScroll = useCallback(() => {
+    if (isSyncingHorizontal.current) return;
+    const left = leftContainerRef.current;
+    const right = rightContainerRef.current;
+    if (!left || !right) return;
+
+    if (Math.abs(left.scrollLeft - right.scrollLeft) > 1) {
+      isSyncingHorizontal.current = true;
+      left.scrollLeft = right.scrollLeft;
+      requestAnimationFrame(() => {
+        isSyncingHorizontal.current = false;
+      });
+    }
+  }, []);
+
   // Non-passive wheel handler on parent container locking all panes synchronously
   useEffect(() => {
     const el = parentContainerRef.current;
@@ -187,6 +219,14 @@ export const CsvCompareView: React.FC = () => {
             if (gutterContainerRef.current) gutterContainerRef.current.scrollTop = next;
             return next;
           });
+        }
+      } else if (Math.abs(e.deltaX) > 0) {
+        const target = e.target as HTMLElement | null;
+        if (target && gutterContainerRef.current?.contains(target)) {
+          if (leftContainerRef.current && rightContainerRef.current) {
+            leftContainerRef.current.scrollLeft += e.deltaX;
+            rightContainerRef.current.scrollLeft += e.deltaX;
+          }
         }
       }
     };
@@ -331,6 +371,7 @@ export const CsvCompareView: React.FC = () => {
             {/* === LEFT TABLE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
             <div
               ref={leftContainerRef}
+              onScroll={handleLeftHorizontalScroll}
               className="flex-1 overflow-x-auto overflow-y-hidden border-r border-neutral-800"
             >
               <div
@@ -560,6 +601,7 @@ export const CsvCompareView: React.FC = () => {
             {/* === RIGHT TABLE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
             <div
               ref={rightContainerRef}
+              onScroll={handleRightHorizontalScroll}
               className="flex-1 overflow-x-auto overflow-y-hidden"
             >
               <div

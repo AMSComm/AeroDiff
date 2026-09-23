@@ -89,6 +89,54 @@ export const SplitDiffViewer: React.FC = () => {
     }
   }, []);
 
+  const isSyncingHorizontal = useRef(false);
+  const [maxContentWidth, setMaxContentWidth] = useState<number | undefined>(undefined);
+
+  // Sync scroll width between left and right panes
+  useEffect(() => {
+    const updateWidth = () => {
+      const leftW = leftContainerRef.current?.scrollWidth || 0;
+      const rightW = rightContainerRef.current?.scrollWidth || 0;
+      const maxW = Math.max(leftW, rightW);
+      if (maxW > 0) {
+        setMaxContentWidth(maxW);
+      }
+    };
+    updateWidth();
+    const timer = setTimeout(updateWidth, 50);
+    return () => clearTimeout(timer);
+  }, [lines, diffResult]);
+
+  const handleLeftHorizontalScroll = useCallback(() => {
+    if (isSyncingHorizontal.current) return;
+    const left = leftContainerRef.current;
+    const right = rightContainerRef.current;
+    if (!left || !right) return;
+
+    if (Math.abs(right.scrollLeft - left.scrollLeft) > 1) {
+      isSyncingHorizontal.current = true;
+      right.scrollLeft = left.scrollLeft;
+      requestAnimationFrame(() => {
+        isSyncingHorizontal.current = false;
+      });
+    }
+  }, []);
+
+  const handleRightHorizontalScroll = useCallback(() => {
+    if (isSyncingHorizontal.current) return;
+    const left = leftContainerRef.current;
+    const right = rightContainerRef.current;
+    if (!left || !right) return;
+
+    if (Math.abs(left.scrollLeft - right.scrollLeft) > 1) {
+      isSyncingHorizontal.current = true;
+      left.scrollLeft = right.scrollLeft;
+      requestAnimationFrame(() => {
+        isSyncingHorizontal.current = false;
+      });
+    }
+  }, []);
+
   // Non-passive wheel listener on parent to lock vertical scrolling across all panes
   useEffect(() => {
     const el = parentContainerRef.current;
@@ -107,6 +155,14 @@ export const SplitDiffViewer: React.FC = () => {
             if (gutterContainerRef.current) gutterContainerRef.current.scrollTop = next;
             return next;
           });
+        }
+      } else if (Math.abs(e.deltaX) > 0) {
+        const target = e.target as HTMLElement | null;
+        if (target && gutterContainerRef.current?.contains(target)) {
+          if (leftContainerRef.current && rightContainerRef.current) {
+            leftContainerRef.current.scrollLeft += e.deltaX;
+            rightContainerRef.current.scrollLeft += e.deltaX;
+          }
         }
       }
     };
@@ -262,12 +318,13 @@ export const SplitDiffViewer: React.FC = () => {
           {/* === LEFT PANE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
           <div
             ref={leftContainerRef}
+            onScroll={handleLeftHorizontalScroll}
             className="flex-1 overflow-x-auto overflow-y-hidden border-r border-neutral-800"
           >
             <div
               style={{
                 height: `${rowVirtualizer.getTotalSize()}px`,
-                minWidth: '100%',
+                minWidth: maxContentWidth ? `${maxContentWidth}px` : '100%',
                 width: 'max-content',
                 position: 'relative',
               }}
@@ -408,12 +465,13 @@ export const SplitDiffViewer: React.FC = () => {
           {/* === RIGHT PANE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
           <div
             ref={rightContainerRef}
+            onScroll={handleRightHorizontalScroll}
             className="flex-1 overflow-x-auto overflow-y-hidden"
           >
             <div
               style={{
                 height: `${rowVirtualizer.getTotalSize()}px`,
-                minWidth: '100%',
+                minWidth: maxContentWidth ? `${maxContentWidth}px` : '100%',
                 width: 'max-content',
                 position: 'relative',
               }}
