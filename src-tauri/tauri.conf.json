@@ -30,8 +30,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "publisher": "AM Software",
-    "copyright": "Copyright © 2026 Doãn Huy",
+    "copyright": "Copyright © 2026 AM Software",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -39,5 +40,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM3QTJBOTJGQjExMDQ1MjYKUldRbVJSQ3hMNm1peCttZ0NHa3UrOS9teGp3T1RyenpSa3VGWDBTZTQ2aFJROFZ0cWtHbVF2akUK",
+      "endpoints": [
+        "https://github.com/AMSComm/AeroDiff/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
