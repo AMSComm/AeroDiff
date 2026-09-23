@@ -18,8 +18,12 @@ pub struct MergeResponse {
 }
 
 #[tauri::command]
-pub fn compare_text(left: String, right: String, options: DiffOptions) -> Result<DiffResult, String> {
-    Ok(compute_diff(&left, &right, &options))
+pub async fn compare_text(left: String, right: String, options: DiffOptions) -> Result<DiffResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(compute_diff(&left, &right, &options))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 use encoding_rs::{EUC_JP, SHIFT_JIS, UTF_8};
@@ -208,12 +212,16 @@ pub fn compare_folders_cmd(
 }
 
 #[tauri::command]
-pub fn compare_csv_cmd(
+pub async fn compare_csv_cmd(
     left_content: String,
     right_content: String,
     key_column: Option<String>,
 ) -> Result<CsvCompareResult, String> {
-    compare_csv(&left_content, &right_content, key_column.as_deref())
+    tauri::async_runtime::spawn_blocking(move || {
+        compare_csv(&left_content, &right_content, key_column.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

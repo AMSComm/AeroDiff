@@ -31,7 +31,7 @@ export const StatusBar: React.FC = () => {
           <span>{computeTimeMs}ms</span>
         </div>
 
-        {activeTab?.type === 'file' && (
+        {(activeTab?.type === 'file' || activeTab?.type === 'csv') && (
           <>
             <div className="h-3 w-px bg-neutral-800" />
             <span>
@@ -39,10 +39,37 @@ export const StatusBar: React.FC = () => {
             </span>
           </>
         )}
+
+        {/* Diff summary stats (modified, added, deleted, identical) */}
+        {diffResult && (
+          <>
+            <div className="h-3 w-px bg-neutral-800" />
+            <div className="flex items-center space-x-2 text-[10px]">
+              {diffResult.modified_chunks > 0 && (
+                <span className="text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded">
+                  ~{diffResult.modified_chunks} modified
+                </span>
+              )}
+              {diffResult.added_chunks > 0 && (
+                <span className="text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded">
+                  +{diffResult.added_chunks} added
+                </span>
+              )}
+              {diffResult.deleted_chunks > 0 && (
+                <span className="text-rose-300 bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 rounded">
+                  -{diffResult.deleted_chunks} deleted
+                </span>
+              )}
+              {diffResult.is_identical && (
+                <span className="text-emerald-400 font-medium">Identical</span>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Center: Key shortcuts reminder */}
-      <div className="hidden md:flex items-center space-x-2 text-[10px] text-neutral-500">
+      <div className="hidden lg:flex items-center space-x-2 text-[10px] text-neutral-500">
         <Terminal className="w-2.5 h-2.5" />
         <span>F7: Next Diff</span>
         <span>•</span>
@@ -63,7 +90,11 @@ export const StatusBar: React.FC = () => {
           </span>
         )}
         <div className="h-3 w-px bg-neutral-800" />
-        <span>UTF-8</span>
+        <span>
+          {activeTab?.leftEncoding && activeTab?.rightEncoding && activeTab.leftEncoding !== activeTab.rightEncoding
+            ? `L:${activeTab.leftEncoding} R:${activeTab.rightEncoding}`
+            : activeTab?.leftEncoding || 'UTF-8'}
+        </span>
         <div className="h-3 w-px bg-neutral-800" />
         <span>LF</span>
       </div>

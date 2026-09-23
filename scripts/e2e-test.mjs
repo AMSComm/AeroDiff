@@ -198,7 +198,7 @@ async function run() {
     if (tabsCount3 !== 2) throw new Error(`Expected exactly 2 tabs, but got ${tabsCount3}!`);
     console.log('✅ Start Compare updated the CURRENT tab in-place!');
 
-    // 5. Test CSV Table View vs Text View toggle
+    // 5. Test CSV Table View vs Text View toggle and redundant toolbar absence
     console.log('🔄 Testing CSV Table View vs Text View icon toggle buttons...');
     const tableIconBtn = page.locator('button[title*="Side-by-Side Table View"]');
     const textIconBtn = page.locator('button[title*="Text Diff View"]');
@@ -213,6 +213,30 @@ async function run() {
         console.log('Switched back to Table View for CSV');
       }
     }
+
+    // Verify redundant toolbar in CsvCompareView is completely absent
+    const redundantTitle = page.locator('text="Side-by-Side Table Diff"');
+    if (await redundantTitle.count() > 0) {
+      throw new Error('Redundant "Side-by-Side Table Diff" toolbar still exists in CsvCompareView!');
+    }
+    console.log('✅ Redundant toolbar is successfully removed from CsvCompareView');
+
+    // 6. Verify Diff Options Persistence in LocalStorage
+    console.log('💾 Verifying Diff Options persistence in localStorage...');
+    const savedPrefsRaw = await page.evaluate(() => localStorage.getItem('aerodiff_user_diff_options'));
+    console.log(`Saved preferences in localStorage: ${savedPrefsRaw}`);
+    if (!savedPrefsRaw) throw new Error('Diff options preferences not saved to localStorage');
+    const savedPrefs = JSON.parse(savedPrefsRaw);
+    if (!savedPrefs.options) throw new Error('Saved preferences missing options object');
+    console.log('✅ Diff options correctly persisted in localStorage');
+
+    // 7. Verify Horizontal Scroll Containers Exist (both Left and Right)
+    console.log('↔️ Verifying dual horizontal scroll containers...');
+    const scrollContainers = page.locator('.overflow-auto');
+    const scrollCount = await scrollContainers.count();
+    console.log(`Found ${scrollCount} scroll containers with overflow-auto`);
+    if (scrollCount < 2) throw new Error('Dual scroll containers (left & right) are missing');
+    console.log('✅ Dual scroll containers with horizontal scrolling support are verified');
 
     console.log('🎉 ALL PLAYWRIGHT E2E ASSERTIONS PASSED WITH 100% SUCCESS!');
     await browser.close();

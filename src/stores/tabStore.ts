@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { TabSession, TabType, HistorySnapshot } from '../types/tab';
-import { DiffOptions, DiffResult, FolderCompareResult, CsvCompareResult, ViewMode } from '../types/diff';
+import { DiffOptions, DiffResult, FolderCompareResult, CsvCompareResult, ViewMode, IgnoreWhitespace } from '../types/diff';
 import {
   invokeCompareText,
   invokeCompareFolders,
@@ -11,6 +11,7 @@ import {
 import { readFileContent } from '../utils/filePicker';
 import { cleanPath } from '../utils/pathUtils';
 import { saveRecentPath } from '../utils/recentPaths';
+import { loadSavedDiffPreferences, saveDiffPreferences } from '../utils/diffOptionsStorage';
 
 interface TabState {
   tabs: TabSession[];
@@ -88,6 +89,8 @@ const createDefaultSession = (type: TabType = 'welcome', initial?: Partial<TabSe
   if (type === 'folder') title = 'Folder Diff';
   if (type === 'csv') title = 'CSV Diff';
 
+  const savedPrefs = loadSavedDiffPreferences();
+
   return {
     id: generateId(),
     title,
@@ -97,11 +100,11 @@ const createDefaultSession = (type: TabType = 'welcome', initial?: Partial<TabSe
     leftContent: '',
     rightContent: '',
     isEditing: false,
-    viewMode: 'split',
+    viewMode: savedPrefs.viewMode,
     diffResult: null,
     folderResult: null,
     csvResult: null,
-    options: { ...DEFAULT_OPTIONS },
+    options: { ...savedPrefs.options },
     activeChunkIndex: 0,
     history: [],
     future: [],
@@ -448,6 +451,7 @@ export const useTabStore = create<TabState>((set, get) => ({
   },
 
   setViewMode: (viewMode) => {
+    saveDiffPreferences({ viewMode });
     get().updateActiveTab({ viewMode });
   },
 
@@ -455,26 +459,28 @@ export const useTabStore = create<TabState>((set, get) => ({
     const active = get().getActiveTab();
     if (!active) return;
     const current = active.options.ignore_whitespace;
-    const next = current === 'None' ? 'LeadingAndTrailing' : current === 'LeadingAndTrailing' ? 'All' : 'None';
-    get().updateActiveTab({ options: { ...active.options, ignore_whitespace: next } });
+    const next: IgnoreWhitespace = current === 'None' ? 'LeadingAndTrailing' : current === 'LeadingAndTrailing' ? 'All' : 'None';
+    const newOptions: DiffOptions = { ...active.options, ignore_whitespace: next };
+    saveDiffPreferences({ options: newOptions });
+    get().updateActiveTab({ options: newOptions });
     get().recomputeActiveDiff();
   },
 
   toggleIgnoreBlankLines: () => {
     const active = get().getActiveTab();
     if (!active) return;
-    get().updateActiveTab({
-      options: { ...active.options, ignore_blank_lines: !active.options.ignore_blank_lines },
-    });
+    const newOptions = { ...active.options, ignore_blank_lines: !active.options.ignore_blank_lines };
+    saveDiffPreferences({ options: newOptions });
+    get().updateActiveTab({ options: newOptions });
     get().recomputeActiveDiff();
   },
 
   toggleIgnoreCase: () => {
     const active = get().getActiveTab();
     if (!active) return;
-    get().updateActiveTab({
-      options: { ...active.options, ignore_case: !active.options.ignore_case },
-    });
+    const newOptions = { ...active.options, ignore_case: !active.options.ignore_case };
+    saveDiffPreferences({ options: newOptions });
+    get().updateActiveTab({ options: newOptions });
     get().recomputeActiveDiff();
   },
 
