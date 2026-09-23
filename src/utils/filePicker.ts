@@ -75,10 +75,13 @@ export async function pickPath(type: 'file' | 'folder'): Promise<string | null> 
 }
 
 /**
- * Read text content from path (checks cache first, then Tauri read_file)
+ * Read text content from path with encoding support (UTF-8, Shift_JIS, EUC-JP)
  */
-export async function readFileContent(path: string): Promise<string> {
-  return await invokeReadFile(path);
+export async function readFileContent(
+  path: string,
+  encoding?: string
+): Promise<{ content: string; encoding: string }> {
+  return await invokeReadFile(path, encoding);
 }
 
 /**

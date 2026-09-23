@@ -36,4 +36,6 @@ export interface TabSession {
   isComputing: boolean;
   computeTimeMs: number;
   csvViewMode?: 'table' | 'text';
+  leftEncoding?: string;
+  rightEncoding?: string;
 }

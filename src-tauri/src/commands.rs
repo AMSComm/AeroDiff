@@ -1,7 +1,6 @@
 use crate::csv::engine::compare_csv;
 use crate::csv::types::CsvCompareResult;
 use crate::diff::engine::compute_diff;
-use crate::diff::hash::fast_hash_file;
 use crate::diff::merge::{merge_chunk_left_to_right, merge_chunk_right_to_left};
 use crate::diff::options::DiffOptions;
 use crate::diff::types::DiffResult;
@@ -23,46 +22,97 @@ pub fn compare_text(left: String, right: String, options: DiffOptions) -> Result
     Ok(compute_diff(&left, &right, &options))
 }
 
+use encoding_rs::{EUC_JP, SHIFT_JIS, UTF_8};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FileContentResult {
+    pub content: String,
+    pub encoding: String,
+}
+
+pub fn decode_bytes_with_encoding(
+    bytes: &[u8],
+    preferred_encoding: Option<&str>,
+) -> (String, String) {
+    match preferred_encoding.map(|s| s.to_lowercase()).as_deref() {
+        Some("shift_jis") | Some("shiftjis") | Some("sjis") | Some("cp932") => {
+            let (res, _, _) = SHIFT_JIS.decode(bytes);
+            (res.into_owned(), "Shift_JIS".to_string())
+        }
+        Some("euc_jp") | Some("euc-jp") | Some("eucjp") => {
+            let (res, _, _) = EUC_JP.decode(bytes);
+            (res.into_owned(), "EUC-JP".to_string())
+        }
+        Some("utf-8") | Some("utf8") => {
+            let (res, _, _) = UTF_8.decode(bytes);
+            (res.into_owned(), "UTF-8".to_string())
+        }
+        _ => {
+            // Auto-detect strategy:
+            // 1. Check if valid UTF-8
+            if let Ok(utf8_str) = std::str::from_utf8(bytes) {
+                return (utf8_str.to_string(), "UTF-8".to_string());
+            }
+
+            // 2. Try Shift_JIS without malformed bytes
+            let (sjis_str, _, sjis_had_errors) = SHIFT_JIS.decode(bytes);
+            if !sjis_had_errors {
+                return (sjis_str.into_owned(), "Shift_JIS".to_string());
+            }
+
+            // 3. Try EUC-JP without malformed bytes
+            let (euc_str, _, euc_had_errors) = EUC_JP.decode(bytes);
+            if !euc_had_errors {
+                return (euc_str.into_owned(), "EUC-JP".to_string());
+            }
+
+            // 4. Fallback to Shift_JIS
+            (sjis_str.into_owned(), "Shift_JIS".to_string())
+        }
+    }
+}
+
 #[tauri::command]
 pub fn compare_files(
     left_path: String,
     right_path: String,
     options: DiffOptions,
+    left_encoding: Option<String>,
+    right_encoding: Option<String>,
 ) -> Result<DiffResult, String> {
-    let p_left = Path::new(&left_path);
-    let p_right = Path::new(&right_path);
+    let clean_l = left_path.trim().trim_matches('"').trim_matches('\'');
+    let clean_r = right_path.trim().trim_matches('"').trim_matches('\'');
+    let p_left = Path::new(clean_l);
+    let p_right = Path::new(clean_r);
 
     if !p_left.exists() {
-        return Err(format!("Left file does not exist: {}", left_path));
+        return Err(format!("Left file does not exist: {}", clean_l));
     }
     if !p_right.exists() {
-        return Err(format!("Right file does not exist: {}", right_path));
+        return Err(format!("Right file does not exist: {}", clean_r));
     }
 
-    // Fast hash check for identical files (especially for large files)
-    if let (Ok(meta_l), Ok(meta_r)) = (p_left.metadata(), p_right.metadata()) {
-        if meta_l.len() == meta_r.len() && meta_l.len() > 0 {
-            if let (Ok(h_l), Ok(h_r)) = (fast_hash_file(p_left), fast_hash_file(p_right)) {
-                if h_l == h_r && options == DiffOptions::default() {
-                    let count = meta_l.len() as usize;
-                    return Ok(DiffResult {
-                        lines: Vec::new(),
-                        chunks: Vec::new(),
-                        total_left_lines: count,
-                        total_right_lines: count,
-                        added_chunks: 0,
-                        deleted_chunks: 0,
-                        modified_chunks: 0,
-                        is_identical: true,
-                        hash_matched: true,
-                    });
-                }
-            }
-        }
+    let bytes_l = fs::read(p_left).map_err(|e| format!("Failed to read left file: {}", e))?;
+    let bytes_r = fs::read(p_right).map_err(|e| format!("Failed to read right file: {}", e))?;
+
+    if bytes_l == bytes_r && options == DiffOptions::default() && left_encoding == right_encoding {
+        let (left, _) = decode_bytes_with_encoding(&bytes_l, left_encoding.as_deref());
+        let count = left.lines().count();
+        return Ok(DiffResult {
+            lines: Vec::new(),
+            chunks: Vec::new(),
+            total_left_lines: count,
+            total_right_lines: count,
+            added_chunks: 0,
+            deleted_chunks: 0,
+            modified_chunks: 0,
+            is_identical: true,
+            hash_matched: true,
+        });
     }
 
-    let left = fs::read_to_string(p_left).map_err(|e| format!("Failed to read left file: {}", e))?;
-    let right = fs::read_to_string(p_right).map_err(|e| format!("Failed to read right file: {}", e))?;
+    let (left, _) = decode_bytes_with_encoding(&bytes_l, left_encoding.as_deref());
+    let (right, _) = decode_bytes_with_encoding(&bytes_r, right_encoding.as_deref());
 
     Ok(compute_diff(&left, &right, &options))
 }
@@ -124,15 +174,26 @@ pub fn check_path(path: String) -> Result<PathInfo, String> {
 }
 
 #[tauri::command]
-pub fn read_file(path: String) -> Result<String, String> {
+pub fn read_file(path: String, encoding: Option<String>) -> Result<FileContentResult, String> {
     let clean = path.trim().trim_matches('"').trim_matches('\'');
-    fs::read_to_string(clean).map_err(|e| format!("Failed to read file '{}': {}", clean, e))
+    let bytes = fs::read(clean).map_err(|e| format!("Failed to read file '{}': {}", clean, e))?;
+    let (content, enc_name) = decode_bytes_with_encoding(&bytes, encoding.as_deref());
+    Ok(FileContentResult {
+        content,
+        encoding: enc_name,
+    })
 }
 
 #[tauri::command]
-pub fn save_file(path: String, content: String) -> Result<(), String> {
+pub fn save_file(path: String, content: String, encoding: Option<String>) -> Result<(), String> {
     let clean = path.trim().trim_matches('"').trim_matches('\'');
-    fs::write(clean, content).map_err(|e| format!("Failed to write file '{}': {}", clean, e))
+    let enc = match encoding.map(|s| s.to_lowercase()).as_deref() {
+        Some("shift_jis") | Some("shiftjis") | Some("sjis") | Some("cp932") => SHIFT_JIS,
+        Some("euc_jp") | Some("euc-jp") | Some("eucjp") => EUC_JP,
+        _ => UTF_8,
+    };
+    let (encoded_bytes, _, _) = enc.encode(&content);
+    fs::write(clean, encoded_bytes).map_err(|e| format!("Failed to write file '{}': {}", clean, e))
 }
 
 #[tauri::command]
@@ -153,5 +214,35 @@ pub fn compare_csv_cmd(
     key_column: Option<String>,
 ) -> Result<CsvCompareResult, String> {
     compare_csv(&left_content, &right_content, key_column.as_deref())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decode_utf8() {
+        let text = "Hello 世界";
+        let bytes = text.as_bytes();
+        let (decoded, enc) = decode_bytes_with_encoding(bytes, None);
+        assert_eq!(decoded, text);
+        assert_eq!(enc, "UTF-8");
+    }
+
+    #[test]
+    fn test_decode_shift_jis() {
+        let (bytes, _, _) = SHIFT_JIS.encode("こんにちは世界 (Shift_JIS)");
+        let (decoded, enc) = decode_bytes_with_encoding(&bytes, None);
+        assert_eq!(decoded, "こんにちは世界 (Shift_JIS)");
+        assert_eq!(enc, "Shift_JIS");
+    }
+
+    #[test]
+    fn test_decode_euc_jp() {
+        let (bytes, _, _) = EUC_JP.encode("こんにちは世界 (EUC-JP)");
+        let (decoded, enc) = decode_bytes_with_encoding(&bytes, Some("euc-jp"));
+        assert_eq!(decoded, "こんにちは世界 (EUC-JP)");
+        assert_eq!(enc, "EUC-JP");
+    }
 }
 

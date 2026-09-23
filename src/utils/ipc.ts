@@ -152,7 +152,9 @@ export async function invokeCompareText(
 export async function invokeCompareFiles(
   leftPath: string,
   rightPath: string,
-  options: DiffOptions
+  options: DiffOptions,
+  leftEncoding?: string,
+  rightEncoding?: string
 ): Promise<DiffResult> {
   const cLeft = cleanPath(leftPath);
   const cRight = cleanPath(rightPath);
@@ -160,15 +162,23 @@ export async function invokeCompareFiles(
   if (isTauri()) {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      return await invoke('compare_files', { leftPath: cLeft, rightPath: cRight, options });
+      return await invoke('compare_files', {
+        leftPath: cLeft,
+        rightPath: cRight,
+        options,
+        leftEncoding: leftEncoding && leftEncoding !== 'auto' ? leftEncoding : null,
+        rightEncoding: rightEncoding && rightEncoding !== 'auto' ? rightEncoding : null,
+      });
     } catch (err) {
       console.warn('Tauri compare_files error, falling back to reading content:', err);
     }
   }
 
-  const leftContent = await invokeReadFile(cLeft);
-  const rightContent = await invokeReadFile(cRight);
-  return computeLocalDiff(leftContent, rightContent, options);
+  const [leftRes, rightRes] = await Promise.all([
+    invokeReadFile(cLeft, leftEncoding),
+    invokeReadFile(cRight, rightEncoding),
+  ]);
+  return computeLocalDiff(leftRes.content, rightRes.content, options);
 }
 
 export async function invokeMergeChunk(
@@ -214,24 +224,44 @@ export async function invokeMergeChunk(
   return { new_left: newLeft, new_right: newRight, updated_diff: updatedDiff };
 }
 
-export async function invokeReadFile(path: string): Promise<string> {
+export interface FileContentResult {
+  content: string;
+  encoding: string;
+}
+
+export async function invokeReadFile(
+  path: string,
+  encoding?: string
+): Promise<FileContentResult> {
   const cleaned = cleanPath(path);
-  if (!cleaned) return '';
-  if (fileContentCache.has(cleaned)) {
-    return fileContentCache.get(cleaned)!;
+  if (!cleaned) return { content: '', encoding: 'UTF-8' };
+
+  const cacheKey = `${cleaned}:${encoding || 'auto'}`;
+  if (fileContentCache.has(cacheKey)) {
+    return { content: fileContentCache.get(cacheKey)!, encoding: encoding || 'UTF-8' };
   }
+
   if (isTauri()) {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      const content = await invoke<string>('read_file', { path: cleaned });
-      fileContentCache.set(cleaned, content);
-      return content;
+      const res = await invoke<FileContentResult>('read_file', {
+        path: cleaned,
+        encoding: encoding && encoding !== 'auto' ? encoding : null,
+      });
+      fileContentCache.set(cacheKey, res.content);
+      fileContentCache.set(cleaned, res.content);
+      return res;
     } catch (err) {
       console.error(`Failed to read file '${cleaned}':`, err);
       throw err;
     }
   }
-  return '';
+
+  if (fileContentCache.has(cleaned)) {
+    return { content: fileContentCache.get(cleaned)!, encoding: 'UTF-8' };
+  }
+
+  return { content: '', encoding: 'UTF-8' };
 }
 
 export interface PathInfo {
@@ -266,13 +296,21 @@ export async function invokeCheckPath(path: string): Promise<PathInfo> {
   };
 }
 
-export async function invokeSaveFile(path: string, content: string): Promise<void> {
+export async function invokeSaveFile(
+  path: string,
+  content: string,
+  encoding?: string
+): Promise<void> {
   const cleaned = cleanPath(path);
   if (!cleaned) return;
   fileContentCache.set(cleaned, content);
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('save_file', { path: cleaned, content });
+    await invoke('save_file', {
+      path: cleaned,
+      content,
+      encoding: encoding && encoding !== 'auto' ? encoding : null,
+    });
   }
 }
 

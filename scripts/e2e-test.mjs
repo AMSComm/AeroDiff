@@ -50,7 +50,7 @@ async function run() {
     await page.goto('http://localhost:4173');
     await page.waitForLoadState('networkidle');
 
-    // 1. Verify Welcome View
+    // 1. Verify Welcome View & Multi-Encoding & History Elements
     console.log('🔍 Checking Welcome View UI elements...');
     const brand = await page.textContent('body');
     if (!brand.includes('AeroDiff')) throw new Error('Brand AeroDiff missing');
@@ -59,7 +59,28 @@ async function run() {
     if (!brand.includes('Start Compare')) throw new Error('Start Compare button missing');
     if (!brand.includes('Compare Text (Scratchpad)')) throw new Error('Compare Text button missing');
 
-    console.log('✅ Welcome View has clean Left & Right target boxes and action buttons');
+    // Verify recent-paths-history datalist exists
+    const datalist = page.locator('#recent-paths-history');
+    if (!(await datalist.count())) throw new Error('Datalist #recent-paths-history missing');
+    console.log('✅ Autocomplete suggestion datalist is present');
+
+    // Verify Encoding Selectors on Welcome View
+    const encodingSelects = page.locator('select');
+    const selectCount = await encodingSelects.count();
+    console.log(`Found ${selectCount} encoding selectors on Welcome View`);
+    if (selectCount < 2) throw new Error('Encoding selectors for Left and Right are missing');
+    console.log('✅ Left and Right Encoding selectors (UTF-8, Shift_JIS, EUC-JP) present');
+
+    // Verify History Suggestion Buttons
+    const historyBtns = page.locator('button[title*="Recent paths suggestion"]');
+    if ((await historyBtns.count()) < 2) throw new Error('Recent paths suggestion buttons missing');
+    await historyBtns.first().click();
+    await page.waitForTimeout(200);
+    const historyMenu = page.locator('text=Recent Targets');
+    if (!(await historyMenu.isVisible())) throw new Error('Recent Targets history dropdown missing');
+    console.log('✅ Recent paths suggestion popover works');
+    // Close dropdown
+    await historyBtns.first().click();
 
     // 2. Test Compare Text (Scratchpad)
     console.log('📝 Testing Scratchpad Text Compare in current tab...');
@@ -144,7 +165,7 @@ async function run() {
       if (!titleAfter.includes('Ignore (Active)')) throw new Error('Case toggle failed');
     }
 
-    // 4. Test New Tab and Start Compare in-place
+    // 4. Test New Tab and Start Compare in-place with CSV
     console.log('➕ Creating New Tab...');
     await page.click('button[title*="Open New Compare Tab"]');
     await page.waitForTimeout(300);
@@ -161,7 +182,6 @@ async function run() {
 
     // Pre-cache content for fallback mock
     await page.evaluate(() => {
-      // Simulate cached file contents for web mode
       const w = window;
       if (w.fileContentCache) {
         w.fileContentCache.set('data_left.csv', 'id,name,role\n1,Alice,Engineer\n2,Bob,Manager\n');

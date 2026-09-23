@@ -8,11 +8,21 @@ import {
   UploadCloud,
   X,
   AlertCircle,
+  History,
+  Trash2,
 } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
 import { pickPath, readFileContent, extractDroppedItem } from '../../utils/filePicker';
 import { cleanPath } from '../../utils/pathUtils';
 import { isTauri, invokeCheckPath, fileContentCache } from '../../utils/ipc';
+import { getRecentPaths, saveRecentPath, clearRecentPaths, removeRecentPath } from '../../utils/recentPaths';
+
+const ENCODING_OPTIONS = [
+  { value: 'auto', label: 'Auto-detect (UTF-8 / Shift_JIS / EUC-JP)' },
+  { value: 'utf-8', label: 'UTF-8' },
+  { value: 'shift_jis', label: 'Shift_JIS (CP932)' },
+  { value: 'euc-jp', label: 'EUC-JP' },
+];
 
 export const WelcomeView: React.FC = () => {
   const { startCompareInActiveTab, updateActiveTab } = useTabStore();
@@ -23,19 +33,39 @@ export const WelcomeView: React.FC = () => {
   const [rightKind, setRightKind] = useState<'file' | 'folder' | null>(null);
   const [leftContent, setLeftContent] = useState<string | undefined>(undefined);
   const [rightContent, setRightContent] = useState<string | undefined>(undefined);
+  const [leftEncoding, setLeftEncoding] = useState('auto');
+  const [rightEncoding, setRightEncoding] = useState('auto');
 
   const [isLeftDragOver, setIsLeftDragOver] = useState(false);
   const [isRightDragOver, setIsRightDragOver] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Recent Paths History state
+  const [recentPaths, setRecentPaths] = useState<string[]>([]);
+  const [showLeftHistory, setShowLeftHistory] = useState(false);
+  const [showRightHistory, setShowRightHistory] = useState(false);
+
   const leftBoxRef = useRef<HTMLDivElement>(null);
   const rightBoxRef = useRef<HTMLDivElement>(null);
+  const currentHoverSideRef = useRef<'left' | 'right'>('left');
+
+  // Load recent paths & subscribe to changes
+  useEffect(() => {
+    setRecentPaths(getRecentPaths());
+    const onUpdated = () => setRecentPaths(getRecentPaths());
+    window.addEventListener('aerodiff-recent-paths-updated', onUpdated);
+    return () => window.removeEventListener('aerodiff-recent-paths-updated', onUpdated);
+  }, []);
 
   /**
-   * Helper: Assign a path to either side, detect file/folder, and pre-read content
+   * Helper: Assign a path to either side, detect file/folder, and pre-read content with encoding
    */
-  const handleAssignPath = async (side: 'left' | 'right', rawPath: string) => {
+  const handleAssignPath = async (
+    side: 'left' | 'right',
+    rawPath: string,
+    encodingOverride?: string
+  ) => {
     const cleaned = cleanPath(rawPath);
     if (!cleaned) return;
 
@@ -44,6 +74,7 @@ export const WelcomeView: React.FC = () => {
     try {
       const info = await invokeCheckPath(cleaned);
       const isFolder = info.is_dir;
+      const enc = encodingOverride || (side === 'left' ? leftEncoding : rightEncoding);
 
       if (side === 'left') {
         setLeftPath(cleaned);
@@ -53,16 +84,22 @@ export const WelcomeView: React.FC = () => {
         setRightKind(isFolder ? 'folder' : 'file');
       }
 
-      // Pre-read content for files
+      // Pre-read content for files with encoding
       if (!isFolder) {
         try {
-          const content = await readFileContent(cleaned);
+          const res = await readFileContent(cleaned, enc);
           if (side === 'left') {
-            setLeftContent(content);
+            setLeftContent(res.content);
+            if (res.encoding && leftEncoding === 'auto') {
+              setLeftEncoding(res.encoding);
+            }
           } else {
-            setRightContent(content);
+            setRightContent(res.content);
+            if (res.encoding && rightEncoding === 'auto') {
+              setRightEncoding(res.encoding);
+            }
           }
-          fileContentCache.set(cleaned, content);
+          fileContentCache.set(cleaned, res.content);
         } catch (readErr: any) {
           console.warn(`Could not pre-read ${side} file:`, readErr);
         }
@@ -93,10 +130,27 @@ export const WelcomeView: React.FC = () => {
 
           if (payload.type === 'enter' || payload.type === 'over') {
             const pos = payload.position;
-            const logicalX = pos ? pos.x / (window.devicePixelRatio || 1) : 0;
-            const isLeft = logicalX < window.innerWidth / 2;
-            setIsLeftDragOver(isLeft);
-            setIsRightDragOver(!isLeft);
+            if (pos && (pos.x !== 0 || pos.y !== 0)) {
+              const dpr = window.devicePixelRatio || 1;
+              const logicalX = pos.x / dpr;
+
+              const rightRect = rightBoxRef.current?.getBoundingClientRect();
+              const leftRect = leftBoxRef.current?.getBoundingClientRect();
+
+              let targetSide: 'left' | 'right' = 'left';
+
+              if (rightRect && leftRect) {
+                // Divider boundary between left and right target boxes
+                const midBoundary = (leftRect.right + rightRect.left) / 2;
+                targetSide = (logicalX >= midBoundary || pos.x >= midBoundary) ? 'right' : 'left';
+              } else {
+                targetSide = (logicalX >= window.innerWidth / 2 || pos.x >= window.innerWidth / 2) ? 'right' : 'left';
+              }
+
+              currentHoverSideRef.current = targetSide;
+              setIsLeftDragOver(targetSide === 'left');
+              setIsRightDragOver(targetSide === 'right');
+            }
           } else if (payload.type === 'leave') {
             setIsLeftDragOver(false);
             setIsRightDragOver(false);
@@ -111,11 +165,24 @@ export const WelcomeView: React.FC = () => {
               await handleAssignPath('left', paths[0]);
               await handleAssignPath('right', paths[1]);
             } else {
-              // Single drop: check drop coordinate
+              // Single drop: check drop coordinates or use hovered target
+              let targetSide = currentHoverSideRef.current;
               const pos = payload.position;
-              const logicalX = pos ? pos.x / (window.devicePixelRatio || 1) : 0;
-              const side = logicalX < window.innerWidth / 2 ? 'left' : 'right';
-              await handleAssignPath(side, paths[0]);
+              if (pos && (pos.x !== 0 || pos.y !== 0)) {
+                const dpr = window.devicePixelRatio || 1;
+                const logicalX = pos.x / dpr;
+                const rightRect = rightBoxRef.current?.getBoundingClientRect();
+                const leftRect = leftBoxRef.current?.getBoundingClientRect();
+
+                if (rightRect && leftRect) {
+                  const midBoundary = (leftRect.right + rightRect.left) / 2;
+                  targetSide = (logicalX >= midBoundary || pos.x >= midBoundary) ? 'right' : 'left';
+                } else {
+                  targetSide = (logicalX >= window.innerWidth / 2 || pos.x >= window.innerWidth / 2) ? 'right' : 'left';
+                }
+              }
+
+              await handleAssignPath(targetSide, paths[0]);
             }
           }
         });
@@ -129,7 +196,7 @@ export const WelcomeView: React.FC = () => {
     return () => {
       if (unlisten) unlisten();
     };
-  }, []);
+  }, [leftEncoding, rightEncoding]);
 
   /**
    * File / Folder Picker handlers
@@ -199,7 +266,8 @@ export const WelcomeView: React.FC = () => {
       if (!isFolder) {
         if (lContent === undefined) {
           try {
-            lContent = await readFileContent(lPath);
+            const resL = await readFileContent(lPath, leftEncoding);
+            lContent = resL.content;
           } catch (e: any) {
             throw new Error(`Failed to read Left file: ${e?.message || e}`);
           }
@@ -207,16 +275,23 @@ export const WelcomeView: React.FC = () => {
 
         if (rContent === undefined) {
           try {
-            rContent = await readFileContent(rPath);
+            const resR = await readFileContent(rPath, rightEncoding);
+            rContent = resR.content;
           } catch (e: any) {
             throw new Error(`Failed to read Right file: ${e?.message || e}`);
           }
         }
       }
 
+      // Save to recent paths history
+      saveRecentPath(lPath);
+      saveRecentPath(rPath);
+
       await startCompareInActiveTab(lPath, rPath, {
         leftContent: lContent,
         rightContent: rContent,
+        leftEncoding,
+        rightEncoding,
         forceType: isFolder ? 'folder' : undefined,
       });
     } catch (err: any) {
@@ -240,6 +315,13 @@ export const WelcomeView: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-6 bg-neutral-950 text-neutral-100 overflow-y-auto select-none">
+      {/* Native Browser Datalist for Autocomplete Suggestions */}
+      <datalist id="recent-paths-history">
+        {recentPaths.map((p, idx) => (
+          <option key={idx} value={p} />
+        ))}
+      </datalist>
+
       <div className="w-full max-w-4xl bg-neutral-900/90 border border-neutral-800 rounded-xl p-6 shadow-2xl space-y-6">
         {/* Header */}
         <div className="text-center space-y-1">
@@ -251,7 +333,7 @@ export const WelcomeView: React.FC = () => {
             </span>
           </div>
           <p className="text-xs text-neutral-400">
-            High-performance cross-platform diff & merge tool for files, folders, and tabular data.
+            High-performance cross-platform diff & merge tool supporting UTF-8, Shift_JIS, and EUC-JP.
           </p>
         </div>
 
@@ -264,7 +346,7 @@ export const WelcomeView: React.FC = () => {
             </div>
             <button
               onClick={() => setErrorMessage(null)}
-              className="text-rose-400 hover:text-rose-200"
+              className="text-rose-400 hover:text-rose-200 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -311,7 +393,7 @@ export const WelcomeView: React.FC = () => {
                     setLeftKind(null);
                     setLeftContent(undefined);
                   }}
-                  className="text-neutral-500 hover:text-neutral-300 text-xs p-1"
+                  className="text-neutral-500 hover:text-neutral-300 text-xs p-1 cursor-pointer"
                   title="Clear Left Target"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -332,40 +414,125 @@ export const WelcomeView: React.FC = () => {
                     {leftPath.split(/[/\\]/).pop()}
                   </span>
                 ) : (
-                  <span>Drag & drop a file or folder here, or browse</span>
+                  <span>Drag & drop Left file/folder here, or browse</span>
                 )}
               </div>
             </div>
 
-            {/* Path Input Field */}
-            <div className="mt-2 space-y-2">
-              <input
-                type="text"
-                value={leftPath}
-                onChange={(e) => {
-                  setLeftPath(e.target.value);
-                  setLeftKind(null);
-                  setLeftContent(undefined);
-                }}
-                onBlur={() => {
-                  if (leftPath.trim()) handleAssignPath('left', leftPath);
-                }}
-                placeholder="Path to left file or directory..."
-                className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-xs font-mono text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500"
-              />
+            {/* Path Input Field with Autocomplete & History Menu */}
+            <div className="mt-2 space-y-2 relative">
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  list="recent-paths-history"
+                  value={leftPath}
+                  onChange={(e) => {
+                    setLeftPath(e.target.value);
+                    setLeftKind(null);
+                    setLeftContent(undefined);
+                  }}
+                  onBlur={() => {
+                    if (leftPath.trim()) handleAssignPath('left', leftPath);
+                  }}
+                  placeholder="Path to left file or directory..."
+                  className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 pr-8 text-xs font-mono text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500"
+                />
+
+                {/* History Suggestion Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLeftHistory(!showLeftHistory);
+                    setShowRightHistory(false);
+                  }}
+                  title="Recent paths suggestion"
+                  className={`absolute right-1.5 p-1 rounded hover:bg-neutral-800 transition-colors ${
+                    showLeftHistory ? 'text-emerald-400 bg-neutral-800' : 'text-neutral-500 hover:text-neutral-300'
+                  }`}
+                >
+                  <History className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* History Dropdown Menu for Left */}
+              {showLeftHistory && (
+                <div className="absolute top-8 left-0 w-full z-30 bg-neutral-900 border border-neutral-800 rounded-lg shadow-xl py-1 text-xs max-h-52 overflow-y-auto">
+                  <div className="px-2.5 py-1 text-[10px] uppercase font-bold text-neutral-500 border-b border-neutral-800/80 flex items-center justify-between">
+                    <span>Recent Targets</span>
+                    {recentPaths.length > 0 && (
+                      <button
+                        onClick={() => clearRecentPaths()}
+                        className="text-rose-400 hover:text-rose-300 flex items-center space-x-1"
+                        title="Clear History"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Clear</span>
+                      </button>
+                    )}
+                  </div>
+                  {recentPaths.length === 0 ? (
+                    <div className="px-3 py-2 text-neutral-500 text-[11px] italic">
+                      No recent paths recorded yet
+                    </div>
+                  ) : (
+                    recentPaths.map((p, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => {
+                          handleAssignPath('left', p);
+                          setShowLeftHistory(false);
+                        }}
+                        className="px-2.5 py-1.5 hover:bg-neutral-800/80 cursor-pointer text-neutral-300 hover:text-white flex items-center justify-between group"
+                      >
+                        <span className="font-mono text-[11px] truncate flex-1">{p}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeRecentPath(p);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-rose-400 p-0.5 ml-2"
+                          title="Remove from history"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* Encoding Selector for Left Target */}
+              <div className="flex items-center space-x-2 pt-1 text-[11px]">
+                <span className="text-neutral-500">Encoding:</span>
+                <select
+                  value={leftEncoding}
+                  onChange={(e) => {
+                    const enc = e.target.value;
+                    setLeftEncoding(enc);
+                    if (leftPath.trim()) handleAssignPath('left', leftPath, enc);
+                  }}
+                  className="bg-neutral-900 border border-neutral-800 rounded px-2 py-0.5 text-neutral-300 text-xs font-mono focus:outline-none focus:border-emerald-500"
+                >
+                  {ENCODING_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               {/* Action Buttons for Left */}
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 pt-1">
                 <button
                   onClick={() => handlePick('left', 'file')}
-                  className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded text-xs transition-colors"
+                  className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded text-xs transition-colors cursor-pointer"
                 >
                   <FileCode className="w-3.5 h-3.5 text-sky-400" />
                   <span>Choose File</span>
                 </button>
                 <button
                   onClick={() => handlePick('left', 'folder')}
-                  className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded text-xs transition-colors"
+                  className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded text-xs transition-colors cursor-pointer"
                 >
                   <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
                   <span>Choose Folder</span>
@@ -412,7 +579,7 @@ export const WelcomeView: React.FC = () => {
                     setRightKind(null);
                     setRightContent(undefined);
                   }}
-                  className="text-neutral-500 hover:text-neutral-300 text-xs p-1"
+                  className="text-neutral-500 hover:text-neutral-300 text-xs p-1 cursor-pointer"
                   title="Clear Right Target"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -433,40 +600,125 @@ export const WelcomeView: React.FC = () => {
                     {rightPath.split(/[/\\]/).pop()}
                   </span>
                 ) : (
-                  <span>Drag & drop a file or folder here, or browse</span>
+                  <span>Drag & drop Right file/folder here, or browse</span>
                 )}
               </div>
             </div>
 
-            {/* Path Input Field */}
-            <div className="mt-2 space-y-2">
-              <input
-                type="text"
-                value={rightPath}
-                onChange={(e) => {
-                  setRightPath(e.target.value);
-                  setRightKind(null);
-                  setRightContent(undefined);
-                }}
-                onBlur={() => {
-                  if (rightPath.trim()) handleAssignPath('right', rightPath);
-                }}
-                placeholder="Path to right file or directory..."
-                className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-xs font-mono text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500"
-              />
+            {/* Path Input Field with Autocomplete & History Menu */}
+            <div className="mt-2 space-y-2 relative">
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  list="recent-paths-history"
+                  value={rightPath}
+                  onChange={(e) => {
+                    setRightPath(e.target.value);
+                    setRightKind(null);
+                    setRightContent(undefined);
+                  }}
+                  onBlur={() => {
+                    if (rightPath.trim()) handleAssignPath('right', rightPath);
+                  }}
+                  placeholder="Path to right file or directory..."
+                  className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 pr-8 text-xs font-mono text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500"
+                />
+
+                {/* History Suggestion Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRightHistory(!showRightHistory);
+                    setShowLeftHistory(false);
+                  }}
+                  title="Recent paths suggestion"
+                  className={`absolute right-1.5 p-1 rounded hover:bg-neutral-800 transition-colors ${
+                    showRightHistory ? 'text-emerald-400 bg-neutral-800' : 'text-neutral-500 hover:text-neutral-300'
+                  }`}
+                >
+                  <History className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* History Dropdown Menu for Right */}
+              {showRightHistory && (
+                <div className="absolute top-8 left-0 w-full z-30 bg-neutral-900 border border-neutral-800 rounded-lg shadow-xl py-1 text-xs max-h-52 overflow-y-auto">
+                  <div className="px-2.5 py-1 text-[10px] uppercase font-bold text-neutral-500 border-b border-neutral-800/80 flex items-center justify-between">
+                    <span>Recent Targets</span>
+                    {recentPaths.length > 0 && (
+                      <button
+                        onClick={() => clearRecentPaths()}
+                        className="text-rose-400 hover:text-rose-300 flex items-center space-x-1"
+                        title="Clear History"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Clear</span>
+                      </button>
+                    )}
+                  </div>
+                  {recentPaths.length === 0 ? (
+                    <div className="px-3 py-2 text-neutral-500 text-[11px] italic">
+                      No recent paths recorded yet
+                    </div>
+                  ) : (
+                    recentPaths.map((p, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => {
+                          handleAssignPath('right', p);
+                          setShowRightHistory(false);
+                        }}
+                        className="px-2.5 py-1.5 hover:bg-neutral-800/80 cursor-pointer text-neutral-300 hover:text-white flex items-center justify-between group"
+                      >
+                        <span className="font-mono text-[11px] truncate flex-1">{p}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeRecentPath(p);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-rose-400 p-0.5 ml-2"
+                          title="Remove from history"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* Encoding Selector for Right Target */}
+              <div className="flex items-center space-x-2 pt-1 text-[11px]">
+                <span className="text-neutral-500">Encoding:</span>
+                <select
+                  value={rightEncoding}
+                  onChange={(e) => {
+                    const enc = e.target.value;
+                    setRightEncoding(enc);
+                    if (rightPath.trim()) handleAssignPath('right', rightPath, enc);
+                  }}
+                  className="bg-neutral-900 border border-neutral-800 rounded px-2 py-0.5 text-neutral-300 text-xs font-mono focus:outline-none focus:border-emerald-500"
+                >
+                  {ENCODING_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               {/* Action Buttons for Right */}
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 pt-1">
                 <button
                   onClick={() => handlePick('right', 'file')}
-                  className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded text-xs transition-colors"
+                  className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded text-xs transition-colors cursor-pointer"
                 >
                   <FileCode className="w-3.5 h-3.5 text-sky-400" />
                   <span>Choose File</span>
                 </button>
                 <button
                   onClick={() => handlePick('right', 'folder')}
-                  className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded text-xs transition-colors"
+                  className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded text-xs transition-colors cursor-pointer"
                 >
                   <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
                   <span>Choose Folder</span>

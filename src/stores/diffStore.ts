@@ -141,8 +141,8 @@ export const useDiffStore = create<DiffState>((set, get) => ({
   setLeftPath: async (leftPath) => {
     set({ leftPath });
     try {
-      const content = await invokeReadFile(leftPath);
-      set({ leftContent: content });
+      const res = await invokeReadFile(leftPath);
+      set({ leftContent: res.content });
       get().runDiff();
     } catch (e) {
       console.error('Error loading left file:', e);
@@ -152,8 +152,8 @@ export const useDiffStore = create<DiffState>((set, get) => ({
   setRightPath: async (rightPath) => {
     set({ rightPath });
     try {
-      const content = await invokeReadFile(rightPath);
-      set({ rightContent: content });
+      const res = await invokeReadFile(rightPath);
+      set({ rightContent: res.content });
       get().runDiff();
     } catch (e) {
       console.error('Error loading right file:', e);

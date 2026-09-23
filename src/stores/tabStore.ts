@@ -10,6 +10,7 @@ import {
 } from '../utils/ipc';
 import { readFileContent } from '../utils/filePicker';
 import { cleanPath } from '../utils/pathUtils';
+import { saveRecentPath } from '../utils/recentPaths';
 
 interface TabState {
   tabs: TabSession[];
@@ -37,9 +38,15 @@ interface TabState {
     options?: {
       leftContent?: string;
       rightContent?: string;
+      leftEncoding?: string;
+      rightEncoding?: string;
       forceType?: TabType;
     }
   ) => Promise<void>;
+
+  // Encoding handlers
+  setLeftEncoding: (encoding: string) => Promise<void>;
+  setRightEncoding: (encoding: string) => Promise<void>;
 
   // CSV View toggle
   toggleCsvViewMode: () => Promise<void>;
@@ -147,10 +154,14 @@ export const useTabStore = create<TabState>((set, get) => ({
   openFileCompareTab: async (leftPath, rightPath, leftContent, rightContent) => {
     let lContent = leftContent ?? '';
     let rContent = rightContent ?? '';
+    let lEncoding = 'UTF-8';
+    let rEncoding = 'UTF-8';
 
     if (!leftContent && leftPath) {
       try {
-        lContent = await readFileContent(leftPath);
+        const res = await readFileContent(leftPath);
+        lContent = res.content;
+        lEncoding = res.encoding;
       } catch (e) {
         console.error('Failed to read left file:', e);
       }
@@ -158,7 +169,9 @@ export const useTabStore = create<TabState>((set, get) => ({
 
     if (!rightContent && rightPath) {
       try {
-        rContent = await readFileContent(rightPath);
+        const res = await readFileContent(rightPath);
+        rContent = res.content;
+        rEncoding = res.encoding;
       } catch (e) {
         console.error('Failed to read right file:', e);
       }
@@ -174,6 +187,8 @@ export const useTabStore = create<TabState>((set, get) => ({
       rightPath,
       leftContent: lContent,
       rightContent: rContent,
+      leftEncoding: lEncoding,
+      rightEncoding: rEncoding,
     });
 
     set((state) => ({
@@ -217,9 +232,15 @@ export const useTabStore = create<TabState>((set, get) => ({
   openCsvCompareTab: async (leftPath, rightPath) => {
     let lContent = '';
     let rContent = '';
+    let lEncoding = 'UTF-8';
+    let rEncoding = 'UTF-8';
     try {
-      lContent = await readFileContent(leftPath);
-      rContent = await readFileContent(rightPath);
+      const resL = await readFileContent(leftPath);
+      lContent = resL.content;
+      lEncoding = resL.encoding;
+      const resR = await readFileContent(rightPath);
+      rContent = resR.content;
+      rEncoding = resR.encoding;
     } catch (e) {
       console.error('Failed to read CSV:', e);
     }
@@ -234,6 +255,8 @@ export const useTabStore = create<TabState>((set, get) => ({
       rightPath,
       leftContent: lContent,
       rightContent: rContent,
+      leftEncoding: lEncoding,
+      rightEncoding: rEncoding,
       isComputing: true,
     });
 
@@ -308,10 +331,14 @@ export const useTabStore = create<TabState>((set, get) => ({
     // For file or csv: read content
     let lContent = options?.leftContent;
     let rContent = options?.rightContent;
+    let lEncoding = options?.leftEncoding || activeTab.leftEncoding || 'UTF-8';
+    let rEncoding = options?.rightEncoding || activeTab.rightEncoding || 'UTF-8';
 
     if (lContent === undefined && cLeft) {
       try {
-        lContent = await readFileContent(cLeft);
+        const res = await readFileContent(cLeft, options?.leftEncoding);
+        lContent = res.content;
+        lEncoding = res.encoding;
       } catch (e: any) {
         console.error('Failed to read left file:', e);
         throw new Error(`Failed to read left file '${cLeft}': ${e?.message || e}`);
@@ -320,12 +347,17 @@ export const useTabStore = create<TabState>((set, get) => ({
 
     if (rContent === undefined && cRight) {
       try {
-        rContent = await readFileContent(cRight);
+        const res = await readFileContent(cRight, options?.rightEncoding);
+        rContent = res.content;
+        rEncoding = res.encoding;
       } catch (e: any) {
         console.error('Failed to read right file:', e);
         throw new Error(`Failed to read right file '${cRight}': ${e?.message || e}`);
       }
     }
+
+    if (cLeft) saveRecentPath(cLeft);
+    if (cRight) saveRecentPath(cRight);
 
     const safeL = lContent ?? '';
     const safeR = rContent ?? '';
@@ -337,6 +369,8 @@ export const useTabStore = create<TabState>((set, get) => ({
       rightPath: cRight,
       leftContent: safeL,
       rightContent: safeR,
+      leftEncoding: lEncoding,
+      rightEncoding: rEncoding,
       csvViewMode: targetType === 'csv' ? 'table' : undefined,
       isComputing: true,
     });
@@ -561,7 +595,7 @@ export const useTabStore = create<TabState>((set, get) => ({
     const active = get().getActiveTab();
     if (!active || !active.leftPath) return false;
     try {
-      await invokeSaveFile(active.leftPath, active.leftContent);
+      await invokeSaveFile(active.leftPath, active.leftContent, active.leftEncoding);
       get().updateActiveTab({ isDirtyLeft: false });
       return true;
     } catch (e) {
@@ -574,12 +608,54 @@ export const useTabStore = create<TabState>((set, get) => ({
     const active = get().getActiveTab();
     if (!active || !active.rightPath) return false;
     try {
-      await invokeSaveFile(active.rightPath, active.rightContent);
+      await invokeSaveFile(active.rightPath, active.rightContent, active.rightEncoding);
       get().updateActiveTab({ isDirtyRight: false });
       return true;
     } catch (e) {
       console.error('Failed to save right file:', e);
       return false;
+    }
+  },
+
+  setLeftEncoding: async (encoding: string) => {
+    const active = get().getActiveTab();
+    if (!active || !active.leftPath) {
+      get().updateActiveTab({ leftEncoding: encoding });
+      return;
+    }
+    get().updateActiveTab({ isComputing: true });
+    try {
+      const res = await readFileContent(active.leftPath, encoding);
+      get().updateActiveTab({
+        leftContent: res.content,
+        leftEncoding: res.encoding,
+        isComputing: false,
+      });
+      await get().recomputeActiveDiff();
+    } catch (e) {
+      console.error('Failed to reload left with encoding:', e);
+      get().updateActiveTab({ isComputing: false });
+    }
+  },
+
+  setRightEncoding: async (encoding: string) => {
+    const active = get().getActiveTab();
+    if (!active || !active.rightPath) {
+      get().updateActiveTab({ rightEncoding: encoding });
+      return;
+    }
+    get().updateActiveTab({ isComputing: true });
+    try {
+      const res = await readFileContent(active.rightPath, encoding);
+      get().updateActiveTab({
+        rightContent: res.content,
+        rightEncoding: res.encoding,
+        isComputing: false,
+      });
+      await get().recomputeActiveDiff();
+    } catch (e) {
+      console.error('Failed to reload right with encoding:', e);
+      get().updateActiveTab({ isComputing: false });
     }
   },
 
