@@ -1,7 +1,7 @@
 # ⚡ AeroDiff
 
 <p align="center">
-  <img src="./public/icon.png" width="96" height="96" alt="AeroDiff Icon" style="border-radius: 16px;" />
+  <img src="./public/icon.png" width="96" height="96" alt="AeroDiff Icon" />
 </p>
 
 <h3 align="center">Ultra-Fast, Space-Optimized Diff &amp; Merge Suite</h3>
