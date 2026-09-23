@@ -1,8 +1,11 @@
 import { DiffOptions, DiffResult, FolderCompareResult, CsvCompareResult } from '../types/diff';
-
+import { cleanPath } from './pathUtils';
 import { isTauri as checkTauriCore } from '@tauri-apps/api/core';
 
 export const fileContentCache = new Map<string, string>();
+if (typeof window !== 'undefined') {
+  (window as any).fileContentCache = fileContentCache;
+}
 
 // Check if running inside Tauri
 export const isTauri = (): boolean => {
@@ -151,17 +154,20 @@ export async function invokeCompareFiles(
   rightPath: string,
   options: DiffOptions
 ): Promise<DiffResult> {
+  const cLeft = cleanPath(leftPath);
+  const cRight = cleanPath(rightPath);
+
   if (isTauri()) {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      return await invoke('compare_files', { leftPath, rightPath, options });
+      return await invoke('compare_files', { leftPath: cLeft, rightPath: cRight, options });
     } catch (err) {
       console.warn('Tauri compare_files error, falling back to reading content:', err);
     }
   }
 
-  const leftContent = await invokeReadFile(leftPath);
-  const rightContent = await invokeReadFile(rightPath);
+  const leftContent = await invokeReadFile(cLeft);
+  const rightContent = await invokeReadFile(cRight);
   return computeLocalDiff(leftContent, rightContent, options);
 }
 
@@ -209,28 +215,64 @@ export async function invokeMergeChunk(
 }
 
 export async function invokeReadFile(path: string): Promise<string> {
-  if (fileContentCache.has(path)) {
-    return fileContentCache.get(path)!;
+  const cleaned = cleanPath(path);
+  if (!cleaned) return '';
+  if (fileContentCache.has(cleaned)) {
+    return fileContentCache.get(cleaned)!;
   }
   if (isTauri()) {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      const content = await invoke<string>('read_file', { path });
-      fileContentCache.set(path, content);
+      const content = await invoke<string>('read_file', { path: cleaned });
+      fileContentCache.set(cleaned, content);
       return content;
     } catch (err) {
-      console.error(`Failed to read file '${path}':`, err);
+      console.error(`Failed to read file '${cleaned}':`, err);
       throw err;
     }
   }
   return '';
 }
 
+export interface PathInfo {
+  path: string;
+  exists: boolean;
+  is_dir: boolean;
+  is_file: boolean;
+  name: string;
+}
+
+export async function invokeCheckPath(path: string): Promise<PathInfo> {
+  const cleaned = cleanPath(path);
+  if (!cleaned) {
+    return { path: '', exists: false, is_dir: false, is_file: false, name: '' };
+  }
+  if (isTauri()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return await invoke<PathInfo>('check_path', { path: cleaned });
+    } catch (err) {
+      console.warn('invoke check_path error:', err);
+    }
+  }
+  const isLikelyDir = !cleaned.includes('.') || cleaned.endsWith('/') || cleaned.endsWith('\\');
+  const name = cleaned.split(/[/\\]/).pop() || '';
+  return {
+    path: cleaned,
+    exists: true,
+    is_dir: isLikelyDir,
+    is_file: !isLikelyDir,
+    name,
+  };
+}
+
 export async function invokeSaveFile(path: string, content: string): Promise<void> {
-  fileContentCache.set(path, content);
+  const cleaned = cleanPath(path);
+  if (!cleaned) return;
+  fileContentCache.set(cleaned, content);
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('save_file', { path, content });
+    await invoke('save_file', { path: cleaned, content });
   }
 }
 
@@ -239,9 +281,11 @@ export async function invokeCompareFolders(
   rightPath: string,
   deepHash: boolean
 ): Promise<FolderCompareResult> {
+  const cLeft = cleanPath(leftPath);
+  const cRight = cleanPath(rightPath);
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    return await invoke('compare_folders_cmd', { leftPath, rightPath, deepHash });
+    return await invoke('compare_folders_cmd', { leftPath: cLeft, rightPath: cRight, deepHash });
   }
   return {
     entries: [],

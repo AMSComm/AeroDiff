@@ -12,6 +12,9 @@ import {
   Save,
   Table,
   FileText,
+  Space,
+  Rows,
+  CaseSensitive,
 } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
 import { SplitDiffViewer } from '../viewer/SplitDiffViewer';
@@ -71,229 +74,240 @@ export const FileCompareView: React.FC = () => {
 
   const isTableViewActive = isCsvFile && csvViewMode === 'table';
 
+  const getWhitespaceTooltip = () => {
+    switch (options.ignore_whitespace) {
+      case 'None':
+        return 'Whitespace: Include (Click to Trim Ends)';
+      case 'LeadingAndTrailing':
+        return 'Whitespace: Trim Ends (Click to Ignore All)';
+      case 'All':
+        return 'Whitespace: Ignore All (Click to Include)';
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col bg-neutral-950 text-neutral-200 select-none overflow-hidden text-xs">
-      {/* Top Options Bar - 100% BUTTONS as requested */}
+      {/* Top Options Bar - 100% COMPACT ICON BUTTONS as requested */}
       <div className="h-10 bg-neutral-900 border-b border-neutral-800 px-3 flex items-center justify-between shrink-0 overflow-x-auto scrollbar-none">
-        {/* Left Section: View, Edit Mode, CSV Toggle, and Ignore Rules */}
+        {/* Left Section: View Modes, Edit Mode, and Comparison Filter Rules */}
         <div className="flex items-center space-x-1.5 shrink-0">
-          {/* CSV View Switcher (Visible only when file is CSV/TSV) */}
+          {/* CSV View Switcher Icons (Table Grid vs Text Diff) */}
           {isCsvFile && (
-            <>
-              <div className="flex items-center bg-neutral-950 p-0.5 rounded border border-neutral-800">
-                <button
-                  onClick={() => {
-                    if (csvViewMode !== 'table') toggleCsvViewMode();
-                  }}
-                  className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                    isTableViewActive
-                      ? 'bg-emerald-500/20 text-emerald-300 font-semibold'
-                      : 'text-neutral-400 hover:text-neutral-200'
-                  }`}
-                >
-                  <Table className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Table View</span>
-                </button>
+            <div className="flex items-center bg-neutral-950 p-0.5 rounded border border-neutral-800">
+              <button
+                onClick={() => {
+                  if (csvViewMode !== 'table') toggleCsvViewMode();
+                }}
+                title="Side-by-Side Table View"
+                className={`p-1.5 rounded transition-colors ${
+                  isTableViewActive
+                    ? 'bg-neutral-800 text-emerald-400 font-semibold shadow-xs'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                <Table className="w-4 h-4" />
+              </button>
 
-                <button
-                  onClick={() => {
-                    if (csvViewMode === 'table') toggleCsvViewMode();
-                  }}
-                  className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                    !isTableViewActive
-                      ? 'bg-neutral-800 text-neutral-100 font-semibold'
-                      : 'text-neutral-400 hover:text-neutral-200'
-                  }`}
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Text View</span>
-                </button>
-              </div>
-
-              <div className="h-4 w-px bg-neutral-800 mx-1" />
-            </>
+              <button
+                onClick={() => {
+                  if (csvViewMode === 'table') toggleCsvViewMode();
+                }}
+                title="Text Diff View"
+                className={`p-1.5 rounded transition-colors ${
+                  !isTableViewActive
+                    ? 'bg-neutral-800 text-sky-400 font-semibold shadow-xs'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+              </button>
+            </div>
           )}
 
-          {/* View Mode Buttons (Side-by-Side vs Unified) */}
+          {/* View Mode Icons (Side-by-Side vs Unified) */}
           {!isTableViewActive && (
             <div className="flex items-center bg-neutral-950 p-0.5 rounded border border-neutral-800">
               <button
                 onClick={() => setViewMode('split')}
-                title="Side-by-Side Split View"
-                className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                title="Side-by-Side Diff View"
+                className={`p-1.5 rounded transition-colors ${
                   viewMode === 'split'
-                    ? 'bg-neutral-800 text-neutral-100 font-semibold shadow-xs'
+                    ? 'bg-neutral-800 text-emerald-400 font-semibold shadow-xs'
                     : 'text-neutral-400 hover:text-neutral-200'
                 }`}
               >
-                <Columns2 className="w-3.5 h-3.5" />
-                <span>Side-by-Side</span>
+                <Columns2 className="w-4 h-4" />
               </button>
 
               <button
                 onClick={() => setViewMode('unified')}
                 title="Unified Combined View"
-                className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                className={`p-1.5 rounded transition-colors ${
                   viewMode === 'unified'
-                    ? 'bg-neutral-800 text-neutral-100 font-semibold shadow-xs'
+                    ? 'bg-neutral-800 text-emerald-400 font-semibold shadow-xs'
                     : 'text-neutral-400 hover:text-neutral-200'
                 }`}
               >
-                <AlignJustify className="w-3.5 h-3.5" />
-                <span>Unified</span>
+                <AlignJustify className="w-4 h-4" />
               </button>
             </div>
           )}
 
-          {/* Live Edit Mode Button */}
+          {/* Live Edit Mode Icon */}
           {!isTableViewActive && (
             <button
               onClick={toggleEditing}
-              title={isEditing ? 'Switch to Visual Diff' : 'Direct In-place Edit'}
-              className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+              title={isEditing ? 'Switch to Visual Diff' : 'Direct Edit Mode'}
+              className={`p-1.5 rounded border transition-colors ${
                 isEditing
                   ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 shadow-sm'
                   : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
               }`}
             >
-              {isEditing ? <Eye className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
-              <span>{isEditing ? 'Visual Diff' : 'Edit Mode'}</span>
+              {isEditing ? <Eye className="w-4 h-4 text-sky-400" /> : <Edit3 className="w-4 h-4" />}
             </button>
           )}
 
           <div className="h-4 w-px bg-neutral-800 mx-1" />
 
-          {/* Ignore Whitespace Button */}
+          {/* Ignore Whitespace Icon Button */}
           <button
             onClick={toggleIgnoreWhitespace}
-            title="Toggle Whitespace rules: Include -> Trim Ends -> Ignore All"
-            className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+            title={getWhitespaceTooltip()}
+            className={`p-1.5 rounded border transition-colors relative ${
               options.ignore_whitespace !== 'None'
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-xs'
                 : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
             }`}
           >
-            Whitespace:{' '}
-            <span className="font-mono">
-              {options.ignore_whitespace === 'None'
-                ? 'Include'
-                : options.ignore_whitespace === 'LeadingAndTrailing'
-                ? 'Trim Ends'
-                : 'Ignore All'}
-            </span>
+            <Space className="w-4 h-4" />
+            {options.ignore_whitespace !== 'None' && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" />
+            )}
           </button>
 
-          {/* Ignore Blank Lines Button */}
+          {/* Ignore Blank Lines Icon Button */}
           <button
             onClick={toggleIgnoreBlankLines}
-            title="Toggle Blank Lines matching"
-            className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+            title={`Blank Lines: ${options.ignore_blank_lines ? 'Ignore (Active)' : 'Match'}`}
+            className={`p-1.5 rounded border transition-colors relative ${
               options.ignore_blank_lines
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-xs'
                 : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
             }`}
           >
-            Blank Lines: {options.ignore_blank_lines ? 'Ignore' : 'Match'}
+            <Rows className="w-4 h-4" />
+            {options.ignore_blank_lines && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" />
+            )}
           </button>
 
-          {/* Ignore Case Button */}
+          {/* Ignore Case Icon Button */}
           <button
             onClick={toggleIgnoreCase}
-            title="Toggle Case Sensitivity"
-            className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
+            title={`Case: ${options.ignore_case ? 'Ignore (Active)' : 'Match'}`}
+            className={`p-1.5 rounded border transition-colors relative ${
               options.ignore_case
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-xs'
                 : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
             }`}
           >
-            Case: {options.ignore_case ? 'Ignore' : 'Match'}
+            <CaseSensitive className="w-4 h-4" />
+            {options.ignore_case && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" />
+            )}
           </button>
         </div>
 
-        {/* Right Section: Navigation, Undo, Save */}
+        {/* Right Section: Navigation, Undo, Save Icons */}
         <div className="flex items-center space-x-1.5 shrink-0 ml-2">
-          {/* Swap Sides Button */}
+          {/* Swap Sides Icon */}
           <button
             onClick={swapSides}
             title="Swap Left and Right sides"
             className="p-1.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors"
           >
-            <ArrowLeftRight className="w-3.5 h-3.5" />
+            <ArrowLeftRight className="w-4 h-4" />
           </button>
 
-          {/* Undo / Redo */}
+          {/* Undo / Redo Icons */}
           <button
             onClick={undoAction}
             disabled={history.length === 0}
             title="Undo merge (Cmd+Z / Ctrl+Z)"
-            className="p-1.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 hover:text-white disabled:opacity-40"
+            className="p-1.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 hover:text-white disabled:opacity-30 transition-colors"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            <RotateCcw className="w-4 h-4" />
           </button>
 
           <button
             onClick={redoAction}
             disabled={future.length === 0}
             title="Redo merge (Cmd+Shift+Z / Ctrl+Y)"
-            className="p-1.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 hover:text-white disabled:opacity-40"
+            className="p-1.5 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 hover:text-white disabled:opacity-30 transition-colors"
           >
-            <RotateCw className="w-3.5 h-3.5" />
+            <RotateCw className="w-4 h-4" />
           </button>
 
           <div className="h-4 w-px bg-neutral-800 mx-1" />
 
           {/* Diff Navigation Buttons */}
           <div className="flex items-center bg-neutral-950 p-0.5 rounded border border-neutral-800">
-            <span className="px-2 text-[11px] font-mono text-neutral-400">
-              {totalChunks > 0 ? `${activeChunkIndex + 1}/${totalChunks}` : '0 diffs'}
-            </span>
             <button
               onClick={prevChunk}
               disabled={totalChunks === 0}
               title="Previous difference (Shift+F7)"
-              className="p-1 rounded text-neutral-300 hover:text-white hover:bg-neutral-800 disabled:opacity-30"
+              className="p-1 rounded text-neutral-300 hover:text-white hover:bg-neutral-800 disabled:opacity-30 transition-colors"
             >
-              <ChevronUp className="w-3.5 h-3.5" />
+              <ChevronUp className="w-4 h-4" />
             </button>
+            <span className="px-1.5 text-[11px] font-mono text-neutral-400">
+              {totalChunks > 0 ? `${activeChunkIndex + 1}/${totalChunks}` : '0'}
+            </span>
             <button
               onClick={nextChunk}
               disabled={totalChunks === 0}
               title="Next difference (F7)"
-              className="p-1 rounded text-neutral-300 hover:text-white hover:bg-neutral-800 disabled:opacity-30"
+              className="p-1 rounded text-neutral-300 hover:text-white hover:bg-neutral-800 disabled:opacity-30 transition-colors"
             >
-              <ChevronDown className="w-3.5 h-3.5" />
+              <ChevronDown className="w-4 h-4" />
             </button>
           </div>
 
           <div className="h-4 w-px bg-neutral-800 mx-1" />
 
-          {/* Save Buttons */}
+          {/* Save Left Icon Button */}
           <button
             onClick={saveLeftFile}
             disabled={!leftPath || !isDirtyLeft}
             title="Save Left File (Cmd+S / Ctrl+S)"
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+            className={`p-1.5 rounded border transition-colors relative ${
               isDirtyLeft
-                ? 'bg-amber-500 text-neutral-950 hover:bg-amber-400 shadow-sm'
-                : 'bg-neutral-950 border border-neutral-800 text-neutral-500 disabled:opacity-50'
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                : 'bg-neutral-950 border-neutral-800 text-neutral-500 disabled:opacity-40'
             }`}
           >
-            <Save className="w-3 h-3" />
-            <span>Save Left</span>
+            <Save className="w-4 h-4" />
+            <span className="absolute -bottom-0.5 right-0.5 text-[8px] font-bold text-sky-400 font-mono">
+              L
+            </span>
           </button>
 
+          {/* Save Right Icon Button */}
           <button
             onClick={saveRightFile}
             disabled={!rightPath || !isDirtyRight}
             title="Save Right File"
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+            className={`p-1.5 rounded border transition-colors relative ${
               isDirtyRight
-                ? 'bg-amber-500 text-neutral-950 hover:bg-amber-400 shadow-sm'
-                : 'bg-neutral-950 border border-neutral-800 text-neutral-500 disabled:opacity-50'
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                : 'bg-neutral-950 border-neutral-800 text-neutral-500 disabled:opacity-40'
             }`}
           >
-            <Save className="w-3 h-3" />
-            <span>Save Right</span>
+            <Save className="w-4 h-4" />
+            <span className="absolute -bottom-0.5 right-0.5 text-[8px] font-bold text-amber-400 font-mono">
+              R
+            </span>
           </button>
         </div>
       </div>
@@ -315,7 +329,7 @@ export const FileCompareView: React.FC = () => {
       {/* Main Diff Content */}
       <div className="flex-1 flex overflow-hidden relative">
         {isTableViewActive ? (
-          /* CSV Table Mode */
+          /* Side-by-Side Dual Table Mode */
           <CsvCompareView />
         ) : isEditing ? (
           /* Live Edit Mode: Dual Textareas with live typing */

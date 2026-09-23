@@ -16,6 +16,7 @@ pub fn run() {
             merge_chunk,
             read_file,
             save_file,
+            check_path,
             compare_folders_cmd,
             compare_csv_cmd
         ])

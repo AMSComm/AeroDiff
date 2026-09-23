@@ -97,14 +97,42 @@ pub fn merge_chunk(
     })
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PathInfo {
+    pub path: String,
+    pub exists: bool,
+    pub is_dir: bool,
+    pub is_file: bool,
+    pub name: String,
+}
+
+#[tauri::command]
+pub fn check_path(path: String) -> Result<PathInfo, String> {
+    let clean = path.trim().trim_matches('"').trim_matches('\'');
+    let p = Path::new(clean);
+    let exists = p.exists();
+    let is_dir = p.is_dir();
+    let is_file = p.is_file();
+    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+    Ok(PathInfo {
+        path: clean.to_string(),
+        exists,
+        is_dir,
+        is_file,
+        name,
+    })
+}
+
 #[tauri::command]
 pub fn read_file(path: String) -> Result<String, String> {
-    fs::read_to_string(&path).map_err(|e| format!("Failed to read file '{}': {}", path, e))
+    let clean = path.trim().trim_matches('"').trim_matches('\'');
+    fs::read_to_string(clean).map_err(|e| format!("Failed to read file '{}': {}", clean, e))
 }
 
 #[tauri::command]
 pub fn save_file(path: String, content: String) -> Result<(), String> {
-    fs::write(&path, content).map_err(|e| format!("Failed to write file '{}': {}", path, e))
+    let clean = path.trim().trim_matches('"').trim_matches('\'');
+    fs::write(clean, content).map_err(|e| format!("Failed to write file '{}': {}", clean, e))
 }
 
 #[tauri::command]
@@ -113,7 +141,9 @@ pub fn compare_folders_cmd(
     right_path: String,
     deep_hash: bool,
 ) -> Result<FolderCompareResult, String> {
-    Ok(compare_folders(left_path, right_path, deep_hash))
+    let clean_l = left_path.trim().trim_matches('"').trim_matches('\'');
+    let clean_r = right_path.trim().trim_matches('"').trim_matches('\'');
+    Ok(compare_folders(clean_l.to_string(), clean_r.to_string(), deep_hash))
 }
 
 #[tauri::command]
@@ -124,3 +154,4 @@ pub fn compare_csv_cmd(
 ) -> Result<CsvCompareResult, String> {
     compare_csv(&left_content, &right_content, key_column.as_deref())
 }
+
