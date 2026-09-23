@@ -37,7 +37,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11
+          version: 11.0.9
           run_install: false
 
       - name: Setup Rust toolchain
@@ -56,6 +56,7 @@ jobs:
 
       - name: Run code validation & tests
         run: |
+          pnpm run lint
           pnpm test
           pnpm run build
 

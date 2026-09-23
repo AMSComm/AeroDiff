@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AMSComm/AeroDiff/releases"><img src="https://img.shields.io/badge/Release-v0.1.0-10b981?style=flat-square" alt="Version 0.1.0" /></a>
+  <a href="https://github.com/AMSComm/AeroDiff/releases"><img src="https://img.shields.io/badge/Release-v0.1.1-10b981?style=flat-square" alt="Version 0.1.1" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-0ea5e9?style=flat-square" alt="License MIT" /></a>
   <img src="https://img.shields.io/badge/Desktop-Tauri_v2-22c55e?style=flat-square&logo=tauri" alt="Tauri v2" />
   <img src="https://img.shields.io/badge/Core-Rust_2021-f97316?style=flat-square&logo=rust" alt="Rust Core" />

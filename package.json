@@ -1,13 +1,14 @@
 {
   "name": "aerodiff",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
-  "author": "Doãn Huy <huy.nguyen@amsoftware.com.vn>",
+  "author": "AM Software (https://amsoftware.com.vn)",
   "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "lint": "oxlint",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "node scripts/e2e-test.mjs",
@@ -15,7 +16,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.0.9",
+    "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-virtual": "^3.13.2",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
@@ -27,7 +28,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwind-merge": "^3.0.2",
-    "tailwindcss": "^4.0.9",
+    "tailwindcss": "^4.3.3",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -39,6 +40,7 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "jsdom": "^26.0.0",
+    "oxlint": "^1.81.0",
     "playwright": "^1.63.0",
     "typescript": "~5.8.2",
     "vite": "^8.3.0",

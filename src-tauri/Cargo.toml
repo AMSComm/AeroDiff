@@ -1,8 +1,8 @@
 [package]
 name = "aerodiff"
-version = "0.1.0"
+version = "0.1.1"
 description = "AeroDiff - Ultra-fast, lightweight cross-platform diff & merge tool"
-authors = ["Doãn Huy <huy.nguyen@amsoftware.com.vn>"]
+authors = ["AM Software <contact@amsoftware.com.vn>"]
 license = "MIT"
 edition = "2021"
 
@@ -28,3 +28,10 @@ encoding_rs = "0.8.41"
 
 [dev-dependencies]
 tempfile = "3.17"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

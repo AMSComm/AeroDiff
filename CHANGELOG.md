@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.1.1] - 2026-09-23
+
+### ⚙️ Architecture & Standardization
+- **Ecosystem Standardization**: Synchronized tooling, build pipelines, and release environments with AMSComm MarkFlow standard.
+- **High-Speed Linting**: Integrated Oxlint (`^1.81.0`) with automated validation steps across local scripts and GitHub Actions workflows.
+- **Binary Size & Startup Optimization**: Configured release compilation profile in Rust with Link-Time Optimization (LTO), symbol stripping, and single codegen unit.
+- **Automated Release Notes Synchronization**: Added standalone `sync-release-notes` workflow and post-release automation hook.
+- **Dependency Updates**: Updated Tailwind CSS and Vite plugin to `4.3.3`.
+
+---
+
 ## [v0.1.0] - 2026-09-23
 
 ### 🚀 Initial Release - High-Performance Cross-Platform Diff & Merge Suite
