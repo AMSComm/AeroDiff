@@ -1,210 +1,335 @@
 import React, { useState } from 'react';
 import {
-  FolderTree,
-  FileText,
-  Table,
   Zap,
   ArrowRight,
   FolderOpen,
   FileCode,
-  FileSpreadsheet,
+  FileText,
+  UploadCloud,
+  X,
 } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
-import { pickPath } from '../../utils/filePicker';
+import { pickPath, extractDroppedItem } from '../../utils/filePicker';
 
 export const WelcomeView: React.FC = () => {
-  const { openFileCompareTab, openFolderCompareTab, openCsvCompareTab, updateActiveTab } =
-    useTabStore();
+  const { startCompareInActiveTab, updateActiveTab } = useTabStore();
 
-  const [compareKind, setCompareKind] = useState<'file' | 'folder' | 'csv' | 'text'>('folder');
-  const [leftInput, setLeftInput] = useState('');
-  const [rightInput, setRightInput] = useState('');
+  const [leftPath, setLeftPath] = useState('');
+  const [rightPath, setRightPath] = useState('');
+  const [leftKind, setLeftKind] = useState<'file' | 'folder' | null>(null);
+  const [rightKind, setRightKind] = useState<'file' | 'folder' | null>(null);
+  const [leftContent, setLeftContent] = useState<string | undefined>(undefined);
+  const [rightContent, setRightContent] = useState<string | undefined>(undefined);
 
-  const handlePickLeft = async (type: 'file' | 'folder') => {
-    const path = await pickPath(type);
-    if (path) {
-      setLeftInput(path);
-      if (type === 'folder') setCompareKind('folder');
-      else setCompareKind('file');
+  const [isLeftDragOver, setIsLeftDragOver] = useState(false);
+  const [isRightDragOver, setIsRightDragOver] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handlePick = async (side: 'left' | 'right', type: 'file' | 'folder') => {
+    setErrorMessage(null);
+    const chosen = await pickPath(type);
+    if (chosen) {
+      if (side === 'left') {
+        setLeftPath(chosen);
+        setLeftKind(type);
+      } else {
+        setRightPath(chosen);
+        setRightKind(type);
+      }
     }
   };
 
-  const handlePickRight = async (type: 'file' | 'folder') => {
-    const path = await pickPath(type);
-    if (path) {
-      setRightInput(path);
-      if (type === 'folder') setCompareKind('folder');
-      else setCompareKind('file');
+  const handleDrop = async (e: React.DragEvent, side: 'left' | 'right') => {
+    e.preventDefault();
+    e.stopPropagation();
+    setErrorMessage(null);
+
+    if (side === 'left') setIsLeftDragOver(false);
+    else setIsRightDragOver(false);
+
+    const dropped = await extractDroppedItem(e);
+    if (dropped) {
+      if (side === 'left') {
+        setLeftPath(dropped.path);
+        setLeftKind(dropped.isFolder ? 'folder' : 'file');
+        if (dropped.content !== undefined) setLeftContent(dropped.content);
+      } else {
+        setRightPath(dropped.path);
+        setRightKind(dropped.isFolder ? 'folder' : 'file');
+        if (dropped.content !== undefined) setRightContent(dropped.content);
+      }
     }
   };
 
   const handleStartComparison = async () => {
-    if (!leftInput.trim() || !rightInput.trim()) {
-      alert('Vui lòng chọn hoặc nhập đường dẫn cho cả Bên Trái và Bên Phải');
+    const lPath = leftPath.trim();
+    const rPath = rightPath.trim();
+
+    if (!lPath || !rPath) {
+      setErrorMessage('Please select or specify targets for both Left and Right sides.');
       return;
     }
 
-    const lPath = leftInput.trim();
-    const rPath = rightInput.trim();
+    setErrorMessage(null);
 
-    if (compareKind === 'folder') {
-      await openFolderCompareTab(lPath, rPath);
-    } else if (compareKind === 'csv') {
-      await openCsvCompareTab(lPath, rPath);
-    } else {
-      await openFileCompareTab(lPath, rPath);
-    }
+    // If both are marked as folder or if either is explicitly picked as folder
+    const isFolder = leftKind === 'folder' || rightKind === 'folder';
+
+    await startCompareInActiveTab(lPath, rPath, {
+      leftContent,
+      rightContent,
+      forceType: isFolder ? 'folder' : undefined,
+    });
   };
 
-  const handleOpenQuickText = () => {
+  const handleOpenScratchpadText = () => {
     updateActiveTab({
       type: 'file',
-      title: 'So sánh Text',
-      leftContent: '// Dán nội dung bên trái vào đây\n',
-      rightContent: '// Dán nội dung bên phải vào đây\n',
+      title: 'Text Diff',
+      leftContent: '// Paste or type Left text here\n',
+      rightContent: '// Paste or type Right text here\n',
       isEditing: true,
     });
   };
 
+  const canStart = leftPath.trim().length > 0 && rightPath.trim().length > 0;
+
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-6 bg-neutral-950 text-neutral-100 overflow-y-auto select-none">
-      <div className="w-full max-w-2xl bg-neutral-900/80 border border-neutral-800 rounded-xl p-6 shadow-2xl space-y-6">
+      <div className="w-full max-w-4xl bg-neutral-900/90 border border-neutral-800 rounded-xl p-6 shadow-2xl space-y-6">
         {/* Header */}
-        <div className="text-center space-y-1.5">
-          <div className="inline-flex items-center space-x-2 text-emerald-400 font-bold text-lg tracking-tight">
+        <div className="text-center space-y-1">
+          <div className="inline-flex items-center space-x-2 text-emerald-400 font-bold text-xl tracking-tight">
             <Zap className="w-5 h-5 fill-emerald-400/20" />
             <span>AeroDiff</span>
-            <span className="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono font-normal">
+            <span className="text-[11px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono font-medium">
               v0.1
             </span>
           </div>
           <p className="text-xs text-neutral-400">
-            Công cụ so sánh File, Thư mục và CSV siêu tốc, đa nền tảng, hỗ trợ chỉnh sửa trực tiếp.
+            High-performance cross-platform diff & merge tool for files, folders, and tabular data.
           </p>
         </div>
 
-        {/* 4 Mode Buttons */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-          <button
-            onClick={() => setCompareKind('folder')}
-            className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all text-xs ${
-              compareKind === 'folder'
-                ? 'bg-amber-500/15 border-amber-500/50 text-amber-200 shadow-sm'
-                : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-700'
+        {/* Error Notification */}
+        {errorMessage && (
+          <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 px-3 py-2 rounded-lg text-xs flex items-center justify-between">
+            <span>{errorMessage}</span>
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="text-rose-400 hover:text-rose-200"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Side-by-Side Target Selectors with Drag & Drop */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* === LEFT TARGET CONTAINER === */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsLeftDragOver(true);
+            }}
+            onDragLeave={() => setIsLeftDragOver(false)}
+            onDrop={(e) => handleDrop(e, 'left')}
+            className={`flex flex-col bg-neutral-950 rounded-lg p-4 border transition-all ${
+              isLeftDragOver
+                ? 'border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/30'
+                : leftPath
+                ? 'border-neutral-700'
+                : 'border-neutral-800 border-dashed'
             }`}
           >
-            <FolderTree className="w-5 h-5 mb-1.5 text-amber-400" />
-            <span className="font-medium">So sánh Thư mục</span>
-            <span className="text-[10px] text-neutral-500 mt-0.5">Quét 2 thư mục</span>
-          </button>
+            {/* Header & Type Indicator */}
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-400 shrink-0" />
+                <span className="text-xs font-semibold text-neutral-200 uppercase tracking-wide">
+                  Left Target
+                </span>
+                {leftKind && (
+                  <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400">
+                    {leftKind}
+                  </span>
+                )}
+              </div>
 
-          <button
-            onClick={() => setCompareKind('file')}
-            className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all text-xs ${
-              compareKind === 'file'
-                ? 'bg-sky-500/15 border-sky-500/50 text-sky-200 shadow-sm'
-                : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-700'
-            }`}
-          >
-            <FileText className="w-5 h-5 mb-1.5 text-sky-400" />
-            <span className="font-medium">So sánh File</span>
-            <span className="text-[10px] text-neutral-500 mt-0.5">So khớp nội dung & edit</span>
-          </button>
-
-          <button
-            onClick={() => setCompareKind('csv')}
-            className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all text-xs ${
-              compareKind === 'csv'
-                ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-200 shadow-sm'
-                : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-700'
-            }`}
-          >
-            <Table className="w-5 h-5 mb-1.5 text-emerald-400" />
-            <span className="font-medium">So sánh CSV</span>
-            <span className="text-[10px] text-neutral-500 mt-0.5">Bảng & Cột khóa</span>
-          </button>
-
-          <button
-            onClick={handleOpenQuickText}
-            className="flex flex-col items-center justify-center p-3 rounded-lg border bg-neutral-950 border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-700 transition-all text-xs"
-          >
-            <FileCode className="w-5 h-5 mb-1.5 text-neutral-300" />
-            <span className="font-medium">So sánh Text</span>
-            <span className="text-[10px] text-neutral-500 mt-0.5">Paste text trực tiếp</span>
-          </button>
-        </div>
-
-        {/* Target Selectors: Left vs Right */}
-        <div className="space-y-4 pt-2">
-          {/* Left Picker */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <label className="font-semibold text-neutral-300">Bên Trái (Left Target):</label>
-              <div className="flex space-x-1.5">
+              {leftPath && (
                 <button
-                  onClick={() => handlePickLeft('file')}
-                  className="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] flex items-center space-x-1"
+                  onClick={() => {
+                    setLeftPath('');
+                    setLeftKind(null);
+                    setLeftContent(undefined);
+                  }}
+                  className="text-neutral-500 hover:text-neutral-300 text-xs p-1"
+                  title="Clear Left Target"
                 >
-                  <FileCode className="w-3 h-3 text-sky-400" />
-                  <span>Chọn File</span>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Dropzone Area / Info Display */}
+            <div className="flex-1 flex flex-col items-center justify-center py-6 text-center text-neutral-400 space-y-2">
+              <UploadCloud className={`w-8 h-8 ${isLeftDragOver ? 'text-emerald-400' : 'text-neutral-600'}`} />
+              <div className="text-xs">
+                {leftPath ? (
+                  <span className="font-mono text-emerald-400 break-all font-medium">
+                    {leftPath.split(/[/\\]/).pop()}
+                  </span>
+                ) : (
+                  <span>Drag & drop a file or folder here, or browse</span>
+                )}
+              </div>
+            </div>
+
+            {/* Path Input Field */}
+            <div className="mt-2 space-y-2">
+              <input
+                type="text"
+                value={leftPath}
+                onChange={(e) => {
+                  setLeftPath(e.target.value);
+                  setLeftKind(null);
+                }}
+                placeholder="Path to left file or directory..."
+                className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-xs font-mono text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500"
+              />
+
+              {/* Action Buttons for Left */}
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => handlePick('left', 'file')}
+                  className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded text-xs transition-colors"
+                >
+                  <FileCode className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Choose File</span>
                 </button>
                 <button
-                  onClick={() => handlePickLeft('folder')}
-                  className="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] flex items-center space-x-1"
+                  onClick={() => handlePick('left', 'folder')}
+                  className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded text-xs transition-colors"
                 >
-                  <FolderOpen className="w-3 h-3 text-amber-400" />
-                  <span>Chọn Thư mục</span>
+                  <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Choose Folder</span>
                 </button>
               </div>
             </div>
-            <input
-              type="text"
-              value={leftInput}
-              onChange={(e) => setLeftInput(e.target.value)}
-              placeholder="Chọn hoặc paste đường dẫn file/thư mục bên trái..."
-              className="w-full bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-xs font-mono text-neutral-200 focus:outline-none focus:border-emerald-500"
-            />
           </div>
 
-          {/* Right Picker */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <label className="font-semibold text-neutral-300">Bên Phải (Right Target):</label>
-              <div className="flex space-x-1.5">
+          {/* === RIGHT TARGET CONTAINER === */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsRightDragOver(true);
+            }}
+            onDragLeave={() => setIsRightDragOver(false)}
+            onDrop={(e) => handleDrop(e, 'right')}
+            className={`flex flex-col bg-neutral-950 rounded-lg p-4 border transition-all ${
+              isRightDragOver
+                ? 'border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/30'
+                : rightPath
+                ? 'border-neutral-700'
+                : 'border-neutral-800 border-dashed'
+            }`}
+          >
+            {/* Header & Type Indicator */}
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0" />
+                <span className="text-xs font-semibold text-neutral-200 uppercase tracking-wide">
+                  Right Target
+                </span>
+                {rightKind && (
+                  <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400">
+                    {rightKind}
+                  </span>
+                )}
+              </div>
+
+              {rightPath && (
                 <button
-                  onClick={() => handlePickRight('file')}
-                  className="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] flex items-center space-x-1"
+                  onClick={() => {
+                    setRightPath('');
+                    setRightKind(null);
+                    setRightContent(undefined);
+                  }}
+                  className="text-neutral-500 hover:text-neutral-300 text-xs p-1"
+                  title="Clear Right Target"
                 >
-                  <FileCode className="w-3 h-3 text-sky-400" />
-                  <span>Chọn File</span>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Dropzone Area / Info Display */}
+            <div className="flex-1 flex flex-col items-center justify-center py-6 text-center text-neutral-400 space-y-2">
+              <UploadCloud className={`w-8 h-8 ${isRightDragOver ? 'text-emerald-400' : 'text-neutral-600'}`} />
+              <div className="text-xs">
+                {rightPath ? (
+                  <span className="font-mono text-emerald-400 break-all font-medium">
+                    {rightPath.split(/[/\\]/).pop()}
+                  </span>
+                ) : (
+                  <span>Drag & drop a file or folder here, or browse</span>
+                )}
+              </div>
+            </div>
+
+            {/* Path Input Field */}
+            <div className="mt-2 space-y-2">
+              <input
+                type="text"
+                value={rightPath}
+                onChange={(e) => {
+                  setRightPath(e.target.value);
+                  setRightKind(null);
+                }}
+                placeholder="Path to right file or directory..."
+                className="w-full bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1.5 text-xs font-mono text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500"
+              />
+
+              {/* Action Buttons for Right */}
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => handlePick('right', 'file')}
+                  className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded text-xs transition-colors"
+                >
+                  <FileCode className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Choose File</span>
                 </button>
                 <button
-                  onClick={() => handlePickRight('folder')}
-                  className="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] flex items-center space-x-1"
+                  onClick={() => handlePick('right', 'folder')}
+                  className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 rounded text-xs transition-colors"
                 >
-                  <FolderOpen className="w-3 h-3 text-amber-400" />
-                  <span>Chọn Thư mục</span>
+                  <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Choose Folder</span>
                 </button>
               </div>
             </div>
-            <input
-              type="text"
-              value={rightInput}
-              onChange={(e) => setRightInput(e.target.value)}
-              placeholder="Chọn hoặc paste đường dẫn file/thư mục bên phải..."
-              className="w-full bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-xs font-mono text-neutral-200 focus:outline-none focus:border-emerald-500"
-            />
           </div>
         </div>
 
-        {/* Start Button */}
-        <button
-          onClick={handleStartComparison}
-          className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded-lg text-sm transition-colors flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20"
-        >
-          <span>Bắt đầu So sánh</span>
-          <ArrowRight className="w-4 h-4" />
-        </button>
+        {/* Primary Action Buttons */}
+        <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
+          <button
+            onClick={handleStartComparison}
+            disabled={!canStart}
+            className="flex-1 w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:hover:bg-emerald-500 text-neutral-950 font-bold rounded-lg text-sm transition-colors flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20"
+          >
+            <span>Start Compare</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={handleOpenScratchpadText}
+            className="w-full sm:w-auto px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-200 font-medium rounded-lg text-xs transition-colors flex items-center justify-center space-x-2"
+          >
+            <FileText className="w-3.5 h-3.5 text-neutral-400" />
+            <span>Compare Text (Scratchpad)</span>
+          </button>
+        </div>
       </div>
     </div>
   );

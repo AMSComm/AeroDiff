@@ -3,12 +3,11 @@ import { useTabStore } from '../stores/tabStore';
 
 describe('useTabStore Unit Tests', () => {
   beforeEach(() => {
-    const defaultTab = useTabStore.getState().tabs[0];
     useTabStore.setState({
       tabs: [
         {
           id: 'test_tab_1',
-          title: 'So sánh Mới',
+          title: 'New Comparison',
           type: 'welcome',
           leftPath: null,
           rightPath: null,
@@ -42,6 +41,7 @@ describe('useTabStore Unit Tests', () => {
     const active = useTabStore.getState().getActiveTab();
     expect(active).toBeDefined();
     expect(active?.type).toBe('welcome');
+    expect(active?.title).toBe('New Comparison');
   });
 
   it('should create and switch to new tab', () => {
@@ -63,21 +63,45 @@ describe('useTabStore Unit Tests', () => {
     expect(useTabStore.getState().activeTabId).toBe('test_tab_1');
   });
 
-  it('should open file compare tab', async () => {
+  it('should start comparison in active tab without opening a new tab', async () => {
     const store = useTabStore.getState();
-    const tabId = await store.openFileCompareTab(
-      '/path/to/a.txt',
-      '/path/to/b.txt',
-      'line 1',
-      'line 2'
-    );
+    expect(useTabStore.getState().tabs.length).toBe(1);
+
+    await store.startCompareInActiveTab('/path/to/left.ts', '/path/to/right.ts', {
+      leftContent: 'const a = 1;',
+      rightContent: 'const a = 2;',
+    });
+
+    const tabs = useTabStore.getState().tabs;
+    expect(tabs.length).toBe(1); // Crucial requirement: replaces current tab in-place!
+    const active = useTabStore.getState().getActiveTab();
+    expect(active?.type).toBe('file');
+    expect(active?.title).toBe('left.ts ↔ right.ts');
+    expect(active?.leftContent).toBe('const a = 1;');
+    expect(active?.rightContent).toBe('const a = 2;');
+    expect(active?.diffResult).toBeDefined();
+  });
+
+  it('should auto-detect CSV files and support table/text view toggle', async () => {
+    const store = useTabStore.getState();
+
+    await store.startCompareInActiveTab('/data/left.csv', '/data/right.csv', {
+      leftContent: 'id,name\n1,Alice\n2,Bob',
+      rightContent: 'id,name\n1,Alice\n2,Robert',
+    });
 
     const active = useTabStore.getState().getActiveTab();
-    expect(active?.id).toBe(tabId);
-    expect(active?.type).toBe('file');
-    expect(active?.title).toBe('a.txt ↔ b.txt');
-    expect(active?.leftContent).toBe('line 1');
-    expect(active?.rightContent).toBe('line 2');
+    expect(active?.type).toBe('csv');
+    expect(active?.csvViewMode).toBe('table');
+    expect(active?.csvResult).toBeDefined();
+
+    // Toggle to text mode
+    await store.toggleCsvViewMode();
+    expect(useTabStore.getState().getActiveTab()?.csvViewMode).toBe('text');
+
+    // Toggle back to table mode
+    await store.toggleCsvViewMode();
+    expect(useTabStore.getState().getActiveTab()?.csvViewMode).toBe('table');
   });
 
   it('should toggle live editing mode', () => {

@@ -21,7 +21,7 @@ export const StatusBar: React.FC = () => {
       <div className="flex items-center space-x-3">
         <div className="flex items-center space-x-1">
           <Zap className={`w-3 h-3 ${isComputing ? 'text-amber-400 animate-pulse' : 'text-emerald-400'}`} />
-          <span>{isComputing ? 'Đang tính toán...' : 'Rust Engine: Sẵn sàng'}</span>
+          <span>{isComputing ? 'Computing...' : 'Rust Engine: Ready'}</span>
         </div>
 
         <div className="h-3 w-px bg-neutral-800" />
@@ -35,7 +35,7 @@ export const StatusBar: React.FC = () => {
           <>
             <div className="h-3 w-px bg-neutral-800" />
             <span>
-              Trái: {totalLeft} dòng | Phải: {totalRight} dòng
+              Left: {totalLeft} lines | Right: {totalRight} lines
             </span>
           </>
         )}
@@ -44,22 +44,22 @@ export const StatusBar: React.FC = () => {
       {/* Center: Key shortcuts reminder */}
       <div className="hidden md:flex items-center space-x-2 text-[10px] text-neutral-500">
         <Terminal className="w-2.5 h-2.5" />
-        <span>F7: Diff tiếp</span>
+        <span>F7: Next Diff</span>
         <span>•</span>
-        <span>Shift+F7: Diff trước</span>
+        <span>Shift+F7: Prev Diff</span>
         <span>•</span>
-        <span>Cmd+T: Tab mới</span>
+        <span>Cmd+T: New Tab</span>
         <span>•</span>
-        <span>Cmd+W: Đóng tab</span>
+        <span>Cmd+W: Close Tab</span>
         <span>•</span>
-        <span>Cmd+S: Lưu file</span>
+        <span>Cmd+S: Save</span>
       </div>
 
       {/* Right items: Chunks & Encoding */}
       <div className="flex items-center space-x-3">
         {totalChunks > 0 && (
           <span>
-            Khối {activeChunkIndex + 1}/{totalChunks}
+            Chunk {activeChunkIndex + 1}/{totalChunks}
           </span>
         )}
         <div className="h-3 w-px bg-neutral-800" />

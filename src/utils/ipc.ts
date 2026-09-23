@@ -1,8 +1,21 @@
 import { DiffOptions, DiffResult, FolderCompareResult, CsvCompareResult } from '../types/diff';
 
+import { isTauri as checkTauriCore } from '@tauri-apps/api/core';
+
+export const fileContentCache = new Map<string, string>();
+
 // Check if running inside Tauri
 export const isTauri = (): boolean => {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  if (typeof window === 'undefined') return false;
+  try {
+    return (
+      checkTauriCore() ||
+      Boolean((window as any).__TAURI__) ||
+      Boolean((window as any).__TAURI_INTERNALS__)
+    );
+  } catch {
+    return Boolean((window as any).__TAURI__) || Boolean((window as any).__TAURI_INTERNALS__);
+  }
 };
 
 // Fallback in-memory diff calculation for browser preview and Vitest tests
@@ -139,10 +152,17 @@ export async function invokeCompareFiles(
   options: DiffOptions
 ): Promise<DiffResult> {
   if (isTauri()) {
-    const { invoke } = await import('@tauri-apps/api/core');
-    return await invoke('compare_files', { leftPath, rightPath, options });
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return await invoke('compare_files', { leftPath, rightPath, options });
+    } catch (err) {
+      console.warn('Tauri compare_files error, falling back to reading content:', err);
+    }
   }
-  throw new Error('File comparison requires running in desktop Tauri app');
+
+  const leftContent = await invokeReadFile(leftPath);
+  const rightContent = await invokeReadFile(rightPath);
+  return computeLocalDiff(leftContent, rightContent, options);
 }
 
 export async function invokeMergeChunk(
@@ -189,17 +209,28 @@ export async function invokeMergeChunk(
 }
 
 export async function invokeReadFile(path: string): Promise<string> {
+  if (fileContentCache.has(path)) {
+    return fileContentCache.get(path)!;
+  }
   if (isTauri()) {
-    const { invoke } = await import('@tauri-apps/api/core');
-    return await invoke('read_file', { path });
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const content = await invoke<string>('read_file', { path });
+      fileContentCache.set(path, content);
+      return content;
+    } catch (err) {
+      console.error(`Failed to read file '${path}':`, err);
+      throw err;
+    }
   }
   return '';
 }
 
 export async function invokeSaveFile(path: string, content: string): Promise<void> {
+  fileContentCache.set(path, content);
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    return await invoke('save_file', { path, content });
+    await invoke('save_file', { path, content });
   }
 }
 
@@ -221,28 +252,122 @@ export async function invokeCompareFolders(
   };
 }
 
+function computeLocalCsvDiff(
+  leftContent: string,
+  rightContent: string,
+  keyColumn?: string
+): CsvCompareResult {
+  const delimiter = leftContent.includes('\t') || rightContent.includes('\t') ? '\t' : ',';
+  const leftLines = leftContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const rightLines = rightContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
+
+  const leftHeaders = leftLines[0] ? leftLines[0].split(delimiter).map((h) => h.trim()) : [];
+  const rightHeaders = rightLines[0] ? rightLines[0].split(delimiter).map((h) => h.trim()) : [];
+  const headers = Array.from(new Set([...leftHeaders, ...rightHeaders]));
+
+  const leftRows = leftLines.slice(1).map((line) => line.split(delimiter).map((c) => c.trim()));
+  const rightRows = rightLines.slice(1).map((line) => line.split(delimiter).map((c) => c.trim()));
+
+  const maxRows = Math.max(leftRows.length, rightRows.length);
+  const rows: import('../types/diff').CsvRowDiff[] = [];
+  let modifiedRows = 0;
+  let addedRows = 0;
+  let deletedRows = 0;
+  let identicalRows = 0;
+
+  for (let i = 0; i < maxRows; i++) {
+    const lRow = leftRows[i];
+    const rRow = rightRows[i];
+
+    if (lRow && rRow) {
+      let isDiff = false;
+      const cells: import('../types/diff').CsvCellDiff[] = headers.map((h, colIdx) => {
+        const lv = lRow[colIdx] ?? '';
+        const rv = rRow[colIdx] ?? '';
+        const cellDiff = lv !== rv;
+        if (cellDiff) isDiff = true;
+        return {
+          col_index: colIdx,
+          col_name: h,
+          left_val: lv || null,
+          right_val: rv || null,
+          is_diff: cellDiff,
+        };
+      });
+
+      if (isDiff) {
+        modifiedRows++;
+        rows.push({
+          key: (keyColumn ? lRow[leftHeaders.indexOf(keyColumn)] : null) || `#${i + 1}`,
+          status: 'Modified',
+          cells,
+        });
+      } else {
+        identicalRows++;
+        rows.push({
+          key: (keyColumn ? lRow[leftHeaders.indexOf(keyColumn)] : null) || `#${i + 1}`,
+          status: 'Unchanged',
+          cells,
+        });
+      }
+    } else if (lRow) {
+      deletedRows++;
+      rows.push({
+        key: `#${i + 1}`,
+        status: 'Deleted',
+        cells: headers.map((h, colIdx) => ({
+          col_index: colIdx,
+          col_name: h,
+          left_val: lRow[colIdx] || null,
+          right_val: null,
+          is_diff: true,
+        })),
+      });
+    } else if (rRow) {
+      addedRows++;
+      rows.push({
+        key: `#${i + 1}`,
+        status: 'Added',
+        cells: headers.map((h, colIdx) => ({
+          col_index: colIdx,
+          col_name: h,
+          left_val: null,
+          right_val: rRow[colIdx] || null,
+          is_diff: true,
+        })),
+      });
+    }
+  }
+
+  return {
+    headers,
+    rows,
+    delimiter,
+    key_column: keyColumn || null,
+    total_rows: rows.length,
+    modified_rows: modifiedRows,
+    added_rows: addedRows,
+    deleted_rows: deletedRows,
+    identical_rows: identicalRows,
+  };
+}
+
 export async function invokeCompareCsv(
   leftContent: string,
   rightContent: string,
   keyColumn?: string
 ): Promise<CsvCompareResult> {
   if (isTauri()) {
-    const { invoke } = await import('@tauri-apps/api/core');
-    return await invoke('compare_csv_cmd', {
-      leftContent,
-      rightContent,
-      keyColumn: keyColumn || null,
-    });
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return await invoke('compare_csv_cmd', {
+        leftContent,
+        rightContent,
+        keyColumn: keyColumn || null,
+      });
+    } catch (err) {
+      console.warn('Tauri compare_csv_cmd error, using local fallback:', err);
+    }
   }
-  return {
-    headers: [],
-    rows: [],
-    delimiter: ',',
-    key_column: null,
-    total_rows: 0,
-    modified_rows: 0,
-    added_rows: 0,
-    deleted_rows: 0,
-    identical_rows: 0,
-  };
+  return computeLocalCsvDiff(leftContent, rightContent, keyColumn);
 }

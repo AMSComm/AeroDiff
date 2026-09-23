@@ -35,4 +35,5 @@ export interface TabSession {
   isDirtyRight: boolean;
   isComputing: boolean;
   computeTimeMs: number;
+  csvViewMode?: 'table' | 'text';
 }

@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowRight, ArrowLeft } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
 import { DiffLine, InlineSpan } from '../../types/diff';
 
@@ -64,7 +64,7 @@ export const SplitDiffViewer: React.FC = () => {
   };
 
   const getLineClass = (type: DiffLine['line_type'], isActive: boolean) => {
-    let base = 'flex items-center text-xs font-mono px-2 select-text leading-5 truncate ';
+    let base = 'flex items-center text-xs font-mono px-2 select-text leading-5 overflow-hidden ';
     if (isActive) {
       base += 'ring-1 ring-emerald-500/40 ';
     }
@@ -88,6 +88,19 @@ export const SplitDiffViewer: React.FC = () => {
       className="flex-1 overflow-auto bg-neutral-950 select-none relative font-mono text-[13px]"
       style={{ height: '100%' }}
     >
+      {diffResult?.is_identical && lines.length > 0 && (
+        <div className="sticky top-0 z-20 bg-emerald-500/10 border-b border-emerald-500/30 px-3 py-1 flex items-center justify-center space-x-2 text-emerald-400 text-xs font-sans">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          <span>Files are identical — no differences found.</span>
+        </div>
+      )}
+
+      {lines.length === 0 && (
+        <div className="h-full flex items-center justify-center text-neutral-500 text-xs font-sans">
+          <span>{diffResult ? 'Both files are empty.' : 'Loading diff...'}</span>
+        </div>
+      )}
+
       <div
         className="w-full relative"
         style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
@@ -121,7 +134,7 @@ export const SplitDiffViewer: React.FC = () => {
 
               {/* Left Content */}
               <div
-                className={`flex-1 ${getLineClass(
+                className={`flex-1 min-w-0 ${getLineClass(
                   line.left_text !== null
                     ? line.line_type === 'Modified'
                       ? 'Modified'
@@ -130,11 +143,13 @@ export const SplitDiffViewer: React.FC = () => {
                   isActiveChunk
                 )}`}
               >
-                {line.left_text !== null ? (
-                  renderInlineText(line.left_text, line.left_inline, true)
-                ) : (
-                  <span className="opacity-0">-</span>
-                )}
+                <div className="truncate w-full">
+                  {line.left_text !== null ? (
+                    renderInlineText(line.left_text, line.left_inline, true)
+                  ) : (
+                    <span className="opacity-0 select-none">-</span>
+                  )}
+                </div>
               </div>
 
               {/* === MIDDLE GUTTER (MERGE ACTIONS) === */}
@@ -165,7 +180,7 @@ export const SplitDiffViewer: React.FC = () => {
               {/* === RIGHT PANE === */}
               {/* Right Content */}
               <div
-                className={`flex-1 ${getLineClass(
+                className={`flex-1 min-w-0 ${getLineClass(
                   line.right_text !== null
                     ? line.line_type === 'Modified'
                       ? 'Modified'
@@ -174,11 +189,13 @@ export const SplitDiffViewer: React.FC = () => {
                   isActiveChunk
                 )}`}
               >
-                {line.right_text !== null ? (
-                  renderInlineText(line.right_text, line.right_inline, false)
-                ) : (
-                  <span className="opacity-0">-</span>
-                )}
+                <div className="truncate w-full">
+                  {line.right_text !== null ? (
+                    renderInlineText(line.right_text, line.right_inline, false)
+                  ) : (
+                    <span className="opacity-0 select-none">-</span>
+                  )}
+                </div>
               </div>
 
               {/* Right Line Number */}

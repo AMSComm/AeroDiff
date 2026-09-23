@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
-import { Table, Key, ArrowRight, RefreshCw, FileSpreadsheet } from 'lucide-react';
+import { Table, Key, ArrowRight, RefreshCw, FileSpreadsheet, FileText } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
 import { CsvRowStatus } from '../../types/diff';
 import { invokeCompareCsv } from '../../utils/ipc';
 
 export const CsvCompareView: React.FC = () => {
-  const { getActiveTab, updateActiveTab } = useTabStore();
+  const { getActiveTab, updateActiveTab, toggleCsvViewMode } = useTabStore();
   const activeTab = getActiveTab();
 
   const [selectedKey, setSelectedKey] = useState<string>('__none__');
 
-  if (!activeTab || activeTab.type !== 'csv') return null;
+  if (!activeTab || (activeTab.type !== 'csv' && activeTab.type !== 'file')) return null;
 
   const csvResult = activeTab.csvResult;
   const leftContent = activeTab.leftContent;
@@ -40,23 +40,23 @@ export const CsvCompareView: React.FC = () => {
       case 'Modified':
         return (
           <span className="text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded text-[10px] font-bold">
-            Sửa đổi
+            Modified
           </span>
         );
       case 'Added':
         return (
           <span className="text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded text-[10px] font-bold">
-            + Thêm mới
+            + Added
           </span>
         );
       case 'Deleted':
         return (
           <span className="text-rose-300 bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 rounded text-[10px] font-bold">
-            - Đã xóa
+            - Deleted
           </span>
         );
       case 'Unchanged':
-        return <span className="text-neutral-500 text-[10px]">Giống nhau</span>;
+        return <span className="text-neutral-500 text-[10px]">Identical</span>;
     }
   };
 
@@ -67,14 +67,24 @@ export const CsvCompareView: React.FC = () => {
         <div className="flex items-center space-x-2 shrink-0">
           <div className="flex items-center space-x-1.5 text-neutral-300 font-semibold">
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-            <span>So sánh Bảng CSV</span>
+            <span>CSV Table Diff</span>
           </div>
+
+          {/* Toggle back to text diff if in file tab or switched */}
+          <button
+            onClick={toggleCsvViewMode}
+            className="flex items-center space-x-1 px-2 py-1 rounded bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 text-xs transition-colors ml-1"
+            title="Switch back to Text View"
+          >
+            <FileText className="w-3.5 h-3.5 text-sky-400" />
+            <span>Text View</span>
+          </button>
 
           <div className="h-4 w-px bg-neutral-800 mx-1" />
 
           {/* Key Selection Buttons */}
           <div className="flex items-center space-x-1">
-            <span className="text-neutral-400 text-[11px]">Chế độ so khớp:</span>
+            <span className="text-neutral-400 text-[11px]">Match Mode:</span>
             <button
               onClick={() => handleKeySelect('__none__')}
               className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
@@ -83,7 +93,7 @@ export const CsvCompareView: React.FC = () => {
                   : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
               }`}
             >
-              Theo số thứ tự dòng (1-1)
+              Row Index (1-to-1)
             </button>
 
             {/* Render header columns as buttons for easy 1-click Primary Key selection */}
@@ -91,14 +101,14 @@ export const CsvCompareView: React.FC = () => {
               <button
                 key={col}
                 onClick={() => handleKeySelect(col)}
-                title={`Ghép các dòng theo cột '${col}'`}
+                title={`Align rows by key column '${col}'`}
                 className={`px-2 py-1 rounded text-xs font-medium border transition-colors ${
                   selectedKey === col
                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
                     : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
                 }`}
               >
-                Khóa: <span className="font-mono font-bold">{col}</span>
+                Key: <span className="font-mono font-bold">{col}</span>
               </button>
             ))}
           </div>
@@ -107,20 +117,20 @@ export const CsvCompareView: React.FC = () => {
         {/* Summary Badges */}
         {csvResult && (
           <div className="flex items-center space-x-2 text-[11px] font-mono shrink-0 ml-2">
-            <span className="text-neutral-400">{csvResult.total_rows} dòng</span>
+            <span className="text-neutral-400">{csvResult.total_rows} rows</span>
             {csvResult.modified_rows > 0 && (
               <span className="text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded">
-                {csvResult.modified_rows} dòng khác
+                {csvResult.modified_rows} modified
               </span>
             )}
             {csvResult.added_rows > 0 && (
               <span className="text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded">
-                +{csvResult.added_rows} mới
+                +{csvResult.added_rows} added
               </span>
             )}
             {csvResult.deleted_rows > 0 && (
               <span className="text-rose-300 bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 rounded">
-                -{csvResult.deleted_rows} xóa
+                -{csvResult.deleted_rows} deleted
               </span>
             )}
           </div>
@@ -131,15 +141,15 @@ export const CsvCompareView: React.FC = () => {
       {!csvResult || rows.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-neutral-500 p-8 space-y-2">
           <Table className="w-10 h-10 text-neutral-600" />
-          <p className="text-xs">Đang tải hoặc chưa có dữ liệu CSV.</p>
+          <p className="text-xs">Loading or no tabular CSV data available.</p>
         </div>
       ) : (
         <div className="flex-1 overflow-auto">
           <table className="w-full text-left text-xs font-mono border-collapse">
             <thead className="bg-neutral-900 sticky top-0 border-b border-neutral-800 text-neutral-400 text-[11px] uppercase tracking-wider font-semibold">
               <tr>
-                <th className="py-2 px-3 w-28 border-r border-neutral-800">Trạng thái</th>
-                <th className="py-2 px-3 w-24 border-r border-neutral-800">Mã / STT</th>
+                <th className="py-2 px-3 w-28 border-r border-neutral-800">Status</th>
+                <th className="py-2 px-3 w-24 border-r border-neutral-800">Key / Index</th>
                 {headers.map((h) => (
                   <th key={h} className="py-2 px-3 min-w-36 border-r border-neutral-800 truncate">
                     {h}

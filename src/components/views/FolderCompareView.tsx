@@ -72,28 +72,28 @@ export const FolderCompareView: React.FC = () => {
         return (
           <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30">
             <AlertTriangle className="w-3 h-3 text-amber-400" />
-            <span>Khác nhau</span>
+            <span>Modified</span>
           </span>
         );
       case 'OnlyInLeft':
         return (
           <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-mono bg-rose-500/15 text-rose-300 border border-rose-500/30">
             <MinusCircle className="w-3 h-3 text-rose-400" />
-            <span>Chỉ bên trái</span>
+            <span>Only Left</span>
           </span>
         );
       case 'OnlyInRight':
         return (
           <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
             <PlusCircle className="w-3 h-3 text-emerald-400" />
-            <span>Chỉ bên phải</span>
+            <span>Only Right</span>
           </span>
         );
       case 'Identical':
         return (
           <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-mono bg-neutral-800 text-neutral-400">
             <CheckCircle2 className="w-3 h-3 text-neutral-500" />
-            <span>Giống nhau</span>
+            <span>Identical</span>
           </span>
         );
     }
@@ -111,21 +111,19 @@ export const FolderCompareView: React.FC = () => {
             className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded text-xs transition-colors shadow-sm disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${activeTab.isComputing ? 'animate-spin' : ''}`} />
-            <span>Quét lại Thư mục</span>
+            <span>Rescan Folders</span>
           </button>
 
           {/* Deep Hash Check Button Toggle */}
           <button
-            onClick={() => {
-              setDeepHash(!deepHash);
-            }}
+            onClick={() => setDeepHash(!deepHash)}
             className={`px-2.5 py-1.5 rounded text-xs border font-medium transition-colors ${
               deepHash
                 ? 'bg-neutral-800 text-emerald-400 border-emerald-500/40'
                 : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
             }`}
           >
-            CRC32 Hash: {deepHash ? 'Bật (Chính xác)' : 'Tắt (Nhanh)'}
+            CRC32 Hash: {deepHash ? 'Enabled (Exact)' : 'Disabled (Fast)'}
           </button>
 
           <div className="h-4 w-px bg-neutral-800 mx-1" />
@@ -137,7 +135,7 @@ export const FolderCompareView: React.FC = () => {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Lọc tên file..."
+              placeholder="Filter file path..."
               className="bg-transparent border-none text-xs text-neutral-200 focus:outline-none w-36"
             />
           </div>
@@ -154,7 +152,7 @@ export const FolderCompareView: React.FC = () => {
                   : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
               }`}
             >
-              Tất cả ({folderResult.entries.length})
+              All ({folderResult.entries.length})
             </button>
             <button
               onClick={() => setFilter('Modified')}
@@ -164,7 +162,7 @@ export const FolderCompareView: React.FC = () => {
                   : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-amber-300'
               }`}
             >
-              Khác nhau ({folderResult.total_modified})
+              Modified ({folderResult.total_modified})
             </button>
             <button
               onClick={() => setFilter('OnlyInLeft')}
@@ -174,7 +172,7 @@ export const FolderCompareView: React.FC = () => {
                   : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-rose-300'
               }`}
             >
-              Chỉ bên trái ({folderResult.total_only_left})
+              Only Left ({folderResult.total_only_left})
             </button>
             <button
               onClick={() => setFilter('OnlyInRight')}
@@ -184,7 +182,7 @@ export const FolderCompareView: React.FC = () => {
                   : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-emerald-300'
               }`}
             >
-              Chỉ bên phải ({folderResult.total_only_right})
+              Only Right ({folderResult.total_only_right})
             </button>
             <button
               onClick={() => setFilter('Identical')}
@@ -194,7 +192,7 @@ export const FolderCompareView: React.FC = () => {
                   : 'bg-neutral-950 text-neutral-500 border-neutral-800 hover:text-neutral-300'
               }`}
             >
-              Giống nhau ({folderResult.total_identical})
+              Identical ({folderResult.total_identical})
             </button>
           </div>
         )}
@@ -203,10 +201,10 @@ export const FolderCompareView: React.FC = () => {
       {/* Directory Paths Banner */}
       <div className="bg-neutral-900/60 border-b border-neutral-800/80 px-3 py-1 flex items-center justify-between text-[11px] text-neutral-400 font-mono">
         <div className="truncate flex-1">
-          <span className="text-neutral-500">Trái:</span> {leftPath}
+          <span className="text-neutral-500">Left:</span> {leftPath}
         </div>
         <div className="truncate flex-1 text-right">
-          <span className="text-neutral-500">Phải:</span> {rightPath}
+          <span className="text-neutral-500">Right:</span> {rightPath}
         </div>
       </div>
 
@@ -215,12 +213,12 @@ export const FolderCompareView: React.FC = () => {
         <table className="w-full text-left text-xs font-mono border-collapse">
           <thead className="bg-neutral-900 sticky top-0 border-b border-neutral-800 text-neutral-400 text-[11px] uppercase tracking-wider">
             <tr>
-              <th className="py-2 px-3 w-8">Loại</th>
-              <th className="py-2 px-3">Tên & Đường dẫn tương đối</th>
-              <th className="py-2 px-3 w-36">Kết quả So sánh</th>
-              <th className="py-2 px-3 w-28 text-right">Size Trái</th>
-              <th className="py-2 px-3 w-28 text-right">Size Phải</th>
-              <th className="py-2 px-3 w-32 text-center">Thao tác</th>
+              <th className="py-2 px-3 w-8">Type</th>
+              <th className="py-2 px-3">Name & Relative Path</th>
+              <th className="py-2 px-3 w-36">Result</th>
+              <th className="py-2 px-3 w-28 text-right">Left Size</th>
+              <th className="py-2 px-3 w-28 text-right">Right Size</th>
+              <th className="py-2 px-3 w-32 text-center">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-900">
@@ -228,8 +226,8 @@ export const FolderCompareView: React.FC = () => {
               <tr>
                 <td colSpan={6} className="py-12 text-center text-neutral-500">
                   {folderResult
-                    ? 'Không có file nào khớp với bộ lọc hiện tại'
-                    : 'Đang quét thư mục...'}
+                    ? 'No files match the current filter.'
+                    : 'Scanning folder contents...'}
                 </td>
               </tr>
             ) : (
@@ -268,11 +266,11 @@ export const FolderCompareView: React.FC = () => {
                           e.stopPropagation();
                           handleOpenFileCompare(entry);
                         }}
-                        title="Mở tab so sánh nội dung file này"
+                        title="Open comparison tab for this file"
                         className="inline-flex items-center space-x-1 text-[11px] px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-300 hover:bg-sky-500/20 transition-colors"
                       >
                         <ExternalLink className="w-3 h-3" />
-                        <span>Mở Tab Diff</span>
+                        <span>Diff Files</span>
                       </button>
                     )}
                   </td>

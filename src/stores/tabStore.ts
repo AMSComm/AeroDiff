@@ -29,6 +29,20 @@ interface TabState {
   openFolderCompareTab: (leftPath: string, rightPath: string) => Promise<string>;
   openCsvCompareTab: (leftPath: string, rightPath: string) => Promise<string>;
 
+  // Start comparison in CURRENT active tab (in-place)
+  startCompareInActiveTab: (
+    leftPath: string,
+    rightPath: string,
+    options?: {
+      leftContent?: string;
+      rightContent?: string;
+      forceType?: TabType;
+    }
+  ) => Promise<void>;
+
+  // CSV View toggle
+  toggleCsvViewMode: () => Promise<void>;
+
   // Active Tab Controls
   getActiveTab: () => TabSession | undefined;
   updateActiveTab: (updates: Partial<TabSession>) => void;
@@ -61,7 +75,7 @@ let tabIdCounter = 1;
 const generateId = () => `tab_${Date.now()}_${tabIdCounter++}`;
 
 const createDefaultSession = (type: TabType = 'welcome', initial?: Partial<TabSession>): TabSession => {
-  let title = 'So sánh Mới';
+  let title = 'New Comparison';
   if (type === 'file') title = 'File Diff';
   if (type === 'folder') title = 'Folder Diff';
   if (type === 'csv') title = 'CSV Diff';
@@ -236,6 +250,127 @@ export const useTabStore = create<TabState>((set, get) => ({
     }
 
     return newTab.id;
+  },
+
+  startCompareInActiveTab: async (leftPath, rightPath, options) => {
+    const activeTab = get().getActiveTab();
+    if (!activeTab) return;
+
+    let targetType: TabType = options?.forceType ?? 'file';
+
+    // Auto-detect type if not forced
+    if (!options?.forceType) {
+      const isCsv =
+        leftPath.toLowerCase().endsWith('.csv') ||
+        leftPath.toLowerCase().endsWith('.tsv') ||
+        rightPath.toLowerCase().endsWith('.csv') ||
+        rightPath.toLowerCase().endsWith('.tsv');
+
+      if (isCsv) {
+        targetType = 'csv';
+      }
+    }
+
+    const leftFileName = leftPath.split(/[/\\]/).pop() || 'Left';
+    const rightFileName = rightPath.split(/[/\\]/).pop() || 'Right';
+    const title =
+      targetType === 'folder'
+        ? `📁 ${leftFileName} ↔ ${rightFileName}`
+        : targetType === 'csv'
+        ? `📊 ${leftFileName} ↔ ${rightFileName}`
+        : `${leftFileName} ↔ ${rightFileName}`;
+
+    if (targetType === 'folder') {
+      get().updateActiveTab({
+        type: 'folder',
+        title,
+        leftPath,
+        rightPath,
+        folderResult: null,
+        isComputing: true,
+      });
+
+      try {
+        const res = await invokeCompareFolders(leftPath, rightPath, true);
+        get().updateActiveTab({ folderResult: res, isComputing: false });
+      } catch (e) {
+        console.error('Failed to compare folders:', e);
+        get().updateActiveTab({ isComputing: false });
+      }
+      return;
+    }
+
+    // For file or csv: read content
+    let lContent = options?.leftContent ?? '';
+    let rContent = options?.rightContent ?? '';
+
+    if (!lContent && leftPath) {
+      try {
+        lContent = await readFileContent(leftPath);
+      } catch (e) {
+        console.error('Failed to read left file:', e);
+      }
+    }
+
+    if (!rContent && rightPath) {
+      try {
+        rContent = await readFileContent(rightPath);
+      } catch (e) {
+        console.error('Failed to read right file:', e);
+      }
+    }
+
+    get().updateActiveTab({
+      type: targetType,
+      title,
+      leftPath,
+      rightPath,
+      leftContent: lContent,
+      rightContent: rContent,
+      csvViewMode: targetType === 'csv' ? 'table' : undefined,
+      isComputing: true,
+    });
+
+    if (targetType === 'csv') {
+      try {
+        const [csvRes, diffRes] = await Promise.all([
+          invokeCompareCsv(lContent, rContent),
+          invokeCompareText(lContent, rContent, activeTab.options),
+        ]);
+        get().updateActiveTab({
+          csvResult: csvRes,
+          diffResult: diffRes,
+          isComputing: false,
+        });
+      } catch (e) {
+        console.error('Failed to compare CSV:', e);
+        get().updateActiveTab({ isComputing: false });
+      }
+    } else {
+      await get().recomputeActiveDiff();
+    }
+  },
+
+  toggleCsvViewMode: async () => {
+    const active = get().getActiveTab();
+    if (!active) return;
+    const currentMode = active.csvViewMode || (active.type === 'csv' ? 'table' : 'text');
+    const nextMode = currentMode === 'table' ? 'text' : 'table';
+
+    get().updateActiveTab({ csvViewMode: nextMode });
+
+    if (nextMode === 'table' && !active.csvResult) {
+      get().updateActiveTab({ isComputing: true });
+      try {
+        const res = await invokeCompareCsv(active.leftContent, active.rightContent);
+        get().updateActiveTab({ csvResult: res, isComputing: false });
+      } catch (e) {
+        console.error('Failed to parse CSV:', e);
+        get().updateActiveTab({ isComputing: false });
+      }
+    } else if (nextMode === 'text' && !active.diffResult) {
+      await get().recomputeActiveDiff();
+    }
   },
 
   getActiveTab: () => {

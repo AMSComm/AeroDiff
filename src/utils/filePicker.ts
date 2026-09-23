@@ -1,7 +1,8 @@
-import { isTauri } from './ipc';
+import { isTauri, invokeReadFile, fileContentCache } from './ipc';
 
 /**
- * Open native OS picker for File or Directory
+ * Open native OS picker for File or Directory.
+ * Pre-reads content into cache so comparison can immediately access it.
  */
 export async function pickPath(type: 'file' | 'folder'): Promise<string | null> {
   if (isTauri()) {
@@ -13,12 +14,22 @@ export async function pickPath(type: 'file' | 'folder'): Promise<string | null> 
         title: type === 'folder' ? 'Select Directory to Compare' : 'Select File to Compare',
       });
 
+      let chosenPath: string | null = null;
       if (selected && typeof selected === 'string') {
-        return selected;
+        chosenPath = selected;
+      } else if (Array.isArray(selected) && selected.length > 0 && typeof selected[0] === 'string') {
+        chosenPath = selected[0];
       }
-      if (Array.isArray(selected) && selected.length > 0 && typeof selected[0] === 'string') {
-        return selected[0];
+
+      if (chosenPath && type === 'file') {
+        try {
+          await invokeReadFile(chosenPath);
+        } catch (e) {
+          console.warn('Pre-read file error in pickPath:', e);
+        }
       }
+
+      return chosenPath;
     } catch (err) {
       console.error('Tauri open dialog error:', err);
     }
@@ -28,39 +39,92 @@ export async function pickPath(type: 'file' | 'folder'): Promise<string | null> 
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
+    input.style.display = 'none';
     if (type === 'folder') {
       input.setAttribute('webkitdirectory', '');
       input.setAttribute('directory', '');
     }
+    document.body.appendChild(input);
 
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const target = e.target as HTMLInputElement;
       const file = target.files?.[0];
+      document.body.removeChild(input);
       if (file) {
-        // Return name or webkitRelativePath
+        try {
+          const text = await file.text();
+          fileContentCache.set(file.name, text);
+        } catch {
+          // Ignore binary or read failure in fallback
+        }
         resolve(file.name);
       } else {
         resolve(null);
       }
     };
 
-    input.oncancel = () => resolve(null);
+    input.oncancel = () => {
+      if (document.body.contains(input)) {
+        document.body.removeChild(input);
+      }
+      resolve(null);
+    };
+
     input.click();
   });
 }
 
 /**
- * Read text content from path or prompt
+ * Read text content from path (checks cache first, then Tauri read_file)
  */
 export async function readFileContent(path: string): Promise<string> {
-  if (isTauri()) {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      return await invoke('read_file', { path });
-    } catch (err) {
-      console.error(`Failed to read file '${path}':`, err);
-      throw err;
+  return await invokeReadFile(path);
+}
+
+/**
+ * Extract dropped item (File or Folder) path and content
+ */
+export async function extractDroppedItem(
+  e: React.DragEvent
+): Promise<{ path: string; isFolder: boolean; content?: string } | null> {
+  const items = e.dataTransfer.items;
+  const files = e.dataTransfer.files;
+
+  if (files.length === 0 && (!items || items.length === 0)) {
+    return null;
+  }
+
+  // Check if entry is a directory via webkitGetAsEntry
+  let isFolder = false;
+  if (items && items.length > 0 && typeof items[0].webkitGetAsEntry === 'function') {
+    const entry = items[0].webkitGetAsEntry();
+    if (entry && entry.isDirectory) {
+      isFolder = true;
     }
   }
-  return '';
+
+  const file = files[0];
+  if (!file) return null;
+
+  // On desktop / Tauri webview, file.path is available as absolute path
+  const fullPath = (file as any).path || file.name;
+
+  let content: string | undefined = undefined;
+  if (!isFolder) {
+    try {
+      content = await file.text();
+      fileContentCache.set(fullPath, content);
+      if (file.name !== fullPath) {
+        fileContentCache.set(file.name, content);
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  return {
+    path: fullPath,
+    isFolder,
+    content,
+  };
 }
