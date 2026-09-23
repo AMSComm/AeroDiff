@@ -64,12 +64,12 @@ async function run() {
     if (!(await datalist.count())) throw new Error('Datalist #recent-paths-history missing');
     console.log('✅ Autocomplete suggestion datalist is present');
 
-    // Verify Encoding Selectors on Welcome View
+    // Verify clean UI: No unnecessary manual encoding selectors on Welcome View
     const encodingSelects = page.locator('select');
     const selectCount = await encodingSelects.count();
-    console.log(`Found ${selectCount} encoding selectors on Welcome View`);
-    if (selectCount < 2) throw new Error('Encoding selectors for Left and Right are missing');
-    console.log('✅ Left and Right Encoding selectors (UTF-8, Shift_JIS, EUC-JP) present');
+    console.log(`Select dropdowns on Welcome View: ${selectCount}`);
+    if (selectCount > 0) throw new Error('Unnecessary encoding dropdowns still exist on Welcome View');
+    console.log('✅ Clean UI verified: Encoding is auto-detected without manual dropdown clutter');
 
     // Verify History Suggestion Buttons
     const historyBtns = page.locator('button[title*="Recent paths suggestion"]');

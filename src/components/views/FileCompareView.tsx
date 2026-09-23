@@ -40,8 +40,6 @@ export const FileCompareView: React.FC = () => {
     prevChunk,
     setLeftContent,
     setRightContent,
-    setLeftEncoding,
-    setRightEncoding,
   } = useTabStore();
 
   const activeTab = getActiveTab();
@@ -322,32 +320,8 @@ export const FileCompareView: React.FC = () => {
           <span className="text-neutral-500">Left:</span>
           <span className="text-neutral-300 font-medium truncate">{leftPath || 'Untitled Left'}</span>
           {isDirtyLeft && <span className="text-amber-400 text-[10px] font-bold">(Unsaved)</span>}
-          {leftPath && (
-            <select
-              value={leftEncoding || 'UTF-8'}
-              onChange={(e) => setLeftEncoding(e.target.value)}
-              title="Left File Encoding (Click to switch)"
-              className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 rounded px-1.5 py-0.5 text-[10px] text-sky-400 font-mono focus:outline-none cursor-pointer shrink-0"
-            >
-              <option value="UTF-8">UTF-8</option>
-              <option value="Shift_JIS">Shift_JIS</option>
-              <option value="EUC-JP">EUC-JP</option>
-            </select>
-          )}
         </div>
         <div className="truncate flex-1 text-right flex items-center justify-end space-x-2">
-          {rightPath && (
-            <select
-              value={rightEncoding || 'UTF-8'}
-              onChange={(e) => setRightEncoding(e.target.value)}
-              title="Right File Encoding (Click to switch)"
-              className="bg-neutral-950 border border-neutral-800 hover:border-neutral-700 rounded px-1.5 py-0.5 text-[10px] text-emerald-400 font-mono focus:outline-none cursor-pointer shrink-0"
-            >
-              <option value="UTF-8">UTF-8</option>
-              <option value="Shift_JIS">Shift_JIS</option>
-              <option value="EUC-JP">EUC-JP</option>
-            </select>
-          )}
           {isDirtyRight && <span className="text-amber-400 text-[10px] font-bold">(Unsaved)</span>}
           <span className="text-neutral-300 font-medium truncate">{rightPath || 'Untitled Right'}</span>
           <span className="text-neutral-500">:Right</span>

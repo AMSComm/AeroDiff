@@ -17,13 +17,6 @@ import { cleanPath } from '../../utils/pathUtils';
 import { isTauri, invokeCheckPath, fileContentCache } from '../../utils/ipc';
 import { getRecentPaths, saveRecentPath, clearRecentPaths, removeRecentPath } from '../../utils/recentPaths';
 
-const ENCODING_OPTIONS = [
-  { value: 'auto', label: 'Auto-detect (UTF-8 / Shift_JIS / EUC-JP)' },
-  { value: 'utf-8', label: 'UTF-8' },
-  { value: 'shift_jis', label: 'Shift_JIS (CP932)' },
-  { value: 'euc-jp', label: 'EUC-JP' },
-];
-
 export const WelcomeView: React.FC = () => {
   const { startCompareInActiveTab, updateActiveTab } = useTabStore();
 
@@ -33,8 +26,6 @@ export const WelcomeView: React.FC = () => {
   const [rightKind, setRightKind] = useState<'file' | 'folder' | null>(null);
   const [leftContent, setLeftContent] = useState<string | undefined>(undefined);
   const [rightContent, setRightContent] = useState<string | undefined>(undefined);
-  const [leftEncoding, setLeftEncoding] = useState('auto');
-  const [rightEncoding, setRightEncoding] = useState('auto');
 
   const [isLeftDragOver, setIsLeftDragOver] = useState(false);
   const [isRightDragOver, setIsRightDragOver] = useState(false);
@@ -63,8 +54,7 @@ export const WelcomeView: React.FC = () => {
    */
   const handleAssignPath = async (
     side: 'left' | 'right',
-    rawPath: string,
-    encodingOverride?: string
+    rawPath: string
   ) => {
     const cleaned = cleanPath(rawPath);
     if (!cleaned) return;
@@ -74,7 +64,6 @@ export const WelcomeView: React.FC = () => {
     try {
       const info = await invokeCheckPath(cleaned);
       const isFolder = info.is_dir;
-      const enc = encodingOverride || (side === 'left' ? leftEncoding : rightEncoding);
 
       if (side === 'left') {
         setLeftPath(cleaned);
@@ -84,20 +73,14 @@ export const WelcomeView: React.FC = () => {
         setRightKind(isFolder ? 'folder' : 'file');
       }
 
-      // Pre-read content for files with encoding
+      // Pre-read content for files with auto-detected encoding
       if (!isFolder) {
         try {
-          const res = await readFileContent(cleaned, enc);
+          const res = await readFileContent(cleaned);
           if (side === 'left') {
             setLeftContent(res.content);
-            if (res.encoding && leftEncoding === 'auto') {
-              setLeftEncoding(res.encoding);
-            }
           } else {
             setRightContent(res.content);
-            if (res.encoding && rightEncoding === 'auto') {
-              setRightEncoding(res.encoding);
-            }
           }
           fileContentCache.set(cleaned, res.content);
         } catch (readErr: any) {
@@ -196,7 +179,7 @@ export const WelcomeView: React.FC = () => {
     return () => {
       if (unlisten) unlisten();
     };
-  }, [leftEncoding, rightEncoding]);
+  }, []);
 
   /**
    * File / Folder Picker handlers
@@ -266,7 +249,7 @@ export const WelcomeView: React.FC = () => {
       if (!isFolder) {
         if (lContent === undefined) {
           try {
-            const resL = await readFileContent(lPath, leftEncoding);
+            const resL = await readFileContent(lPath);
             lContent = resL.content;
           } catch (e: any) {
             throw new Error(`Failed to read Left file: ${e?.message || e}`);
@@ -275,7 +258,7 @@ export const WelcomeView: React.FC = () => {
 
         if (rContent === undefined) {
           try {
-            const resR = await readFileContent(rPath, rightEncoding);
+            const resR = await readFileContent(rPath);
             rContent = resR.content;
           } catch (e: any) {
             throw new Error(`Failed to read Right file: ${e?.message || e}`);
@@ -290,8 +273,6 @@ export const WelcomeView: React.FC = () => {
       await startCompareInActiveTab(lPath, rPath, {
         leftContent: lContent,
         rightContent: rContent,
-        leftEncoding,
-        rightEncoding,
         forceType: isFolder ? 'folder' : undefined,
       });
     } catch (err: any) {
@@ -333,7 +314,7 @@ export const WelcomeView: React.FC = () => {
             </span>
           </div>
           <p className="text-xs text-neutral-400">
-            High-performance cross-platform diff & merge tool supporting UTF-8, Shift_JIS, and EUC-JP.
+            High-performance cross-platform diff & merge tool.
           </p>
         </div>
 
@@ -501,26 +482,6 @@ export const WelcomeView: React.FC = () => {
                 </div>
               )}
 
-              {/* Encoding Selector for Left Target */}
-              <div className="flex items-center space-x-2 pt-1 text-[11px]">
-                <span className="text-neutral-500">Encoding:</span>
-                <select
-                  value={leftEncoding}
-                  onChange={(e) => {
-                    const enc = e.target.value;
-                    setLeftEncoding(enc);
-                    if (leftPath.trim()) handleAssignPath('left', leftPath, enc);
-                  }}
-                  className="bg-neutral-900 border border-neutral-800 rounded px-2 py-0.5 text-neutral-300 text-xs font-mono focus:outline-none focus:border-emerald-500"
-                >
-                  {ENCODING_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               {/* Action Buttons for Left */}
               <div className="flex items-center space-x-2 pt-1">
                 <button
@@ -686,26 +647,6 @@ export const WelcomeView: React.FC = () => {
                   )}
                 </div>
               )}
-
-              {/* Encoding Selector for Right Target */}
-              <div className="flex items-center space-x-2 pt-1 text-[11px]">
-                <span className="text-neutral-500">Encoding:</span>
-                <select
-                  value={rightEncoding}
-                  onChange={(e) => {
-                    const enc = e.target.value;
-                    setRightEncoding(enc);
-                    if (rightPath.trim()) handleAssignPath('right', rightPath, enc);
-                  }}
-                  className="bg-neutral-900 border border-neutral-800 rounded px-2 py-0.5 text-neutral-300 text-xs font-mono focus:outline-none focus:border-emerald-500"
-                >
-                  {ENCODING_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
 
               {/* Action Buttons for Right */}
               <div className="flex items-center space-x-2 pt-1">
