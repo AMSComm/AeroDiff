@@ -1,36 +1,44 @@
 import React, { useEffect } from 'react';
-import { useDiffStore } from './stores/diffStore';
-import { HeaderToolbar } from './components/layout/HeaderToolbar';
-import { DiffOptionsBar } from './components/layout/DiffOptionsBar';
+import { useTabStore } from './stores/tabStore';
+import { TabBar } from './components/tabs/TabBar';
+import { WelcomeView } from './components/views/WelcomeView';
+import { FolderCompareView } from './components/views/FolderCompareView';
+import { FileCompareView } from './components/views/FileCompareView';
+import { CsvCompareView } from './components/views/CsvCompareView';
 import { StatusBar } from './components/layout/StatusBar';
-import { SplitDiffViewer } from './components/viewer/SplitDiffViewer';
-import { UnifiedDiffViewer } from './components/viewer/UnifiedDiffViewer';
-import { DiffMinimap } from './components/viewer/DiffMinimap';
-import { FolderDiffViewer } from './components/folder/FolderDiffViewer';
-import { CsvDiffViewer } from './components/csv/CsvDiffViewer';
 
 export const App: React.FC = () => {
   const {
-    compareMode,
-    viewMode,
-    runDiff,
+    getActiveTab,
+    createTab,
+    closeTab,
     nextChunk,
     prevChunk,
-    undo,
-    redo,
+    undoAction,
+    redoAction,
     saveLeftFile,
     saveRightFile,
-  } = useDiffStore();
+  } = useTabStore();
 
-  // Run initial diff on mount
-  useEffect(() => {
-    runDiff();
-  }, []);
+  const activeTab = getActiveTab();
 
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // F7 or Cmd/Ctrl+Down: Next Diff
+      // New Tab: Cmd+T / Ctrl+T
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        createTab('welcome');
+      }
+
+      // Close Tab: Cmd+W / Ctrl+W
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w') {
+        e.preventDefault();
+        const current = useTabStore.getState().getActiveTab();
+        if (current) closeTab(current.id);
+      }
+
+      // Diff navigation: F7 / Shift+F7
       if (e.key === 'F7' && !e.shiftKey) {
         e.preventDefault();
         nextChunk();
@@ -39,19 +47,17 @@ export const App: React.FC = () => {
         prevChunk();
       }
 
-      // Undo: Cmd+Z / Ctrl+Z
+      // Undo / Redo
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
         e.preventDefault();
-        undo();
+        undoAction();
       }
-
-      // Redo: Cmd+Shift+Z / Ctrl+Y
       if (
         ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && e.shiftKey) ||
         ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y')
       ) {
         e.preventDefault();
-        redo();
+        redoAction();
       }
 
       // Save: Cmd+S / Ctrl+S
@@ -64,28 +70,19 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextChunk, prevChunk, undo, redo, saveLeftFile, saveRightFile]);
+  }, [createTab, closeTab, nextChunk, prevChunk, undoAction, redoAction, saveLeftFile, saveRightFile]);
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-neutral-950 text-neutral-100 antialiased select-none font-sans">
-      {/* Top Header Toolbar */}
-      <HeaderToolbar />
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-neutral-950 text-neutral-100 antialiased font-sans">
+      {/* Top Tab Bar */}
+      <TabBar />
 
-      {/* Diff Options Bar (for Text/File mode) */}
-      <DiffOptionsBar />
-
-      {/* Center Dynamic Body */}
+      {/* Main Active Tab Content */}
       <main className="flex-1 flex overflow-hidden relative">
-        {(compareMode === 'file' || compareMode === 'text') && (
-          <>
-            {viewMode === 'split' ? <SplitDiffViewer /> : <UnifiedDiffViewer />}
-            <DiffMinimap />
-          </>
-        )}
-
-        {compareMode === 'folder' && <FolderDiffViewer />}
-
-        {compareMode === 'csv' && <CsvDiffViewer />}
+        {(!activeTab || activeTab.type === 'welcome') && <WelcomeView />}
+        {activeTab?.type === 'folder' && <FolderCompareView />}
+        {activeTab?.type === 'file' && <FileCompareView />}
+        {activeTab?.type === 'csv' && <CsvCompareView />}
       </main>
 
       {/* Bottom Status Bar */}

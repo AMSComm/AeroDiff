@@ -1,10 +1,13 @@
 import React, { useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useDiffStore } from '../../stores/diffStore';
+import { useTabStore } from '../../stores/tabStore';
 import { DiffLine, InlineSpan } from '../../types/diff';
 
 export const UnifiedDiffViewer: React.FC = () => {
-  const { diffResult, activeChunkIndex } = useDiffStore();
+  const { getActiveTab } = useTabStore();
+  const activeTab = getActiveTab();
+  const diffResult = activeTab?.diffResult;
+  const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
   const containerRef = useRef<HTMLDivElement>(null);
 
   const lines = diffResult?.lines || [];

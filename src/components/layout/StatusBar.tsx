@@ -1,9 +1,15 @@
 import React from 'react';
-import { useDiffStore } from '../../stores/diffStore';
+import { useTabStore } from '../../stores/tabStore';
 import { Zap, Clock, Terminal } from 'lucide-react';
 
 export const StatusBar: React.FC = () => {
-  const { isComputing, computeTimeMs, diffResult, activeChunkIndex } = useDiffStore();
+  const { getActiveTab } = useTabStore();
+  const activeTab = getActiveTab();
+
+  const isComputing = activeTab?.isComputing ?? false;
+  const computeTimeMs = activeTab?.computeTimeMs ?? 0;
+  const diffResult = activeTab?.diffResult;
+  const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
 
   const totalLeft = diffResult?.total_left_lines ?? 0;
   const totalRight = diffResult?.total_right_lines ?? 0;
@@ -15,7 +21,7 @@ export const StatusBar: React.FC = () => {
       <div className="flex items-center space-x-3">
         <div className="flex items-center space-x-1">
           <Zap className={`w-3 h-3 ${isComputing ? 'text-amber-400 animate-pulse' : 'text-emerald-400'}`} />
-          <span>{isComputing ? 'Computing Diff...' : 'Rust Engine: Ready'}</span>
+          <span>{isComputing ? 'Đang tính toán...' : 'Rust Engine: Sẵn sàng'}</span>
         </div>
 
         <div className="h-3 w-px bg-neutral-800" />
@@ -25,28 +31,35 @@ export const StatusBar: React.FC = () => {
           <span>{computeTimeMs}ms</span>
         </div>
 
-        <div className="h-3 w-px bg-neutral-800" />
-
-        <span>
-          L: {totalLeft} lines | R: {totalRight} lines
-        </span>
+        {activeTab?.type === 'file' && (
+          <>
+            <div className="h-3 w-px bg-neutral-800" />
+            <span>
+              Trái: {totalLeft} dòng | Phải: {totalRight} dòng
+            </span>
+          </>
+        )}
       </div>
 
       {/* Center: Key shortcuts reminder */}
       <div className="hidden md:flex items-center space-x-2 text-[10px] text-neutral-500">
         <Terminal className="w-2.5 h-2.5" />
-        <span>F7: Next Diff</span>
+        <span>F7: Diff tiếp</span>
         <span>•</span>
-        <span>Shift+F7: Prev Diff</span>
+        <span>Shift+F7: Diff trước</span>
         <span>•</span>
-        <span>Cmd/Ctrl+Z: Undo Merge</span>
+        <span>Cmd+T: Tab mới</span>
+        <span>•</span>
+        <span>Cmd+W: Đóng tab</span>
+        <span>•</span>
+        <span>Cmd+S: Lưu file</span>
       </div>
 
       {/* Right items: Chunks & Encoding */}
       <div className="flex items-center space-x-3">
         {totalChunks > 0 && (
           <span>
-            Chunk {activeChunkIndex + 1} of {totalChunks}
+            Khối {activeChunkIndex + 1}/{totalChunks}
           </span>
         )}
         <div className="h-3 w-px bg-neutral-800" />

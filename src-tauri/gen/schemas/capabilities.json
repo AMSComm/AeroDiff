@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Default permissions for AeroDiff desktop app","local":true,"windows":["*"],"permissions":["core:default","core:webview:default","core:window:default","core:event:default","dialog:default","fs:default"]}}

@@ -1,11 +1,14 @@
 import React, { useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowRight, ArrowLeft } from 'lucide-react';
-import { useDiffStore } from '../../stores/diffStore';
+import { useTabStore } from '../../stores/tabStore';
 import { DiffLine, InlineSpan } from '../../types/diff';
 
 export const SplitDiffViewer: React.FC = () => {
-  const { diffResult, activeChunkIndex, mergeChunkAction } = useDiffStore();
+  const { getActiveTab, mergeChunkAction } = useTabStore();
+  const activeTab = getActiveTab();
+  const diffResult = activeTab?.diffResult;
+  const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
   const containerRef = useRef<HTMLDivElement>(null);
 
   const lines = diffResult?.lines || [];

@@ -1,8 +1,14 @@
-import React from 'react';
-import { useDiffStore } from '../../stores/diffStore';
+import { useTabStore } from '../../stores/tabStore';
 
 export const DiffMinimap: React.FC = () => {
-  const { diffResult, activeChunkIndex, jumpToChunk } = useDiffStore();
+  const { getActiveTab, updateActiveTab } = useTabStore();
+  const activeTab = getActiveTab();
+  const diffResult = activeTab?.diffResult;
+  const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
+
+  const jumpToChunk = (index: number) => {
+    updateActiveTab({ activeChunkIndex: index });
+  };
 
   const lines = diffResult?.lines || [];
   const chunks = diffResult?.chunks || [];
