@@ -24,8 +24,11 @@ import { CodeEditorPane } from '../viewer/CodeEditorPane';
 import { CsvCompareView } from './CsvCompareView';
 
 export const FileCompareView: React.FC = () => {
+  const activeTab = useTabStore(
+    (state) => state.tabs.find((t) => t.id === state.activeTabId) || state.tabs[0]
+  );
+
   const {
-    getActiveTab,
     toggleEditing,
     setViewMode,
     toggleIgnoreWhitespace,
@@ -43,7 +46,6 @@ export const FileCompareView: React.FC = () => {
     setRightContent,
   } = useTabStore();
 
-  const activeTab = getActiveTab();
   if (!activeTab || (activeTab.type !== 'file' && activeTab.type !== 'csv')) return null;
 
   const {

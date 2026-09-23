@@ -123,12 +123,12 @@ async function run() {
     const splitViewer = page.locator('.font-mono.text-\\[13px\\]');
     if (!(await splitViewer.isVisible())) throw new Error('SplitDiffViewer is not visible');
 
-    // Verify Left pane has no-scrollbar-y to prevent middle scrollbar
-    const leftPaneNoScrollbarY = page.locator('.no-scrollbar-y');
-    if ((await leftPaneNoScrollbarY.count()) === 0) {
-      throw new Error('Missing .no-scrollbar-y on left pane!');
+    // Verify Single Master Vertical Scrollbar is rendered
+    const masterScrollbar = page.locator('[data-testid="master-vertical-scrollbar"]');
+    if ((await masterScrollbar.count()) === 0) {
+      throw new Error('Missing Master Vertical Scrollbar in SplitDiffViewer!');
     }
-    console.log('✅ Single unified vertical scrollbar layout verified (.no-scrollbar-y applied to left pane)!');
+    console.log('✅ Single Master Vertical Scrollbar verified in SplitDiffViewer!');
 
     // Verify Right Pane is visible and not empty
     const rightPaneContent = await page.locator('text=Hello Brave World').first();
@@ -193,14 +193,7 @@ async function run() {
     console.log(`Tabs count after [+] clicked: ${tabsCount2}`);
     if (tabsCount2 !== 2) throw new Error('Expected 2 tabs after opening new tab');
 
-    // Fill in left and right targets
-    console.log('📊 Testing CSV comparison and in-place tab start...');
-    const leftInput = page.locator('input[placeholder*="left file"]');
-    const rightInput = page.locator('input[placeholder*="right file"]');
-    await leftInput.fill('data_left.csv');
-    await rightInput.fill('data_right.csv');
-
-    // Pre-cache content for fallback mock
+    // Pre-cache content for fallback mock BEFORE filling inputs
     await page.evaluate(() => {
       const w = window;
       if (w.fileContentCache) {
@@ -208,6 +201,13 @@ async function run() {
         w.fileContentCache.set('data_right.csv', 'id,name,role\n1,Alice,Staff Engineer\n2,Bob,Manager\n3,Charlie,Designer\n');
       }
     });
+
+    // Fill in left and right targets
+    console.log('📊 Testing CSV comparison and in-place tab start...');
+    const leftInput = page.locator('input[placeholder*="left file"]');
+    const rightInput = page.locator('input[placeholder*="right file"]');
+    await leftInput.fill('data_left.csv');
+    await rightInput.fill('data_right.csv');
 
     await page.click('button:has-text("Start Compare")');
     await page.waitForTimeout(500);
@@ -241,6 +241,43 @@ async function run() {
     }
     console.log('✅ Redundant toolbar is successfully removed from CsvCompareView');
 
+    // Verify Master Vertical Scrollbar in CsvCompareView
+    const csvMasterScrollbar = page.locator('[data-testid="master-vertical-scrollbar"]');
+    if ((await csvMasterScrollbar.count()) === 0) {
+      throw new Error('Missing Master Vertical Scrollbar in CsvCompareView!');
+    }
+    console.log('✅ Single Master Vertical Scrollbar verified in CsvCompareView!');
+
+    // Test CSV Inline Cell Editing (Double-click, edit, Enter)
+    console.log('✏️ Testing CSV Inline Cell Editing (double-click to edit)...');
+    const aliceCell = page.locator('div[title*="Alice (Double-click to edit)"]').first();
+    if (!(await aliceCell.isVisible())) {
+      throw new Error('Alice cell not found in CSV table!');
+    }
+    await aliceCell.dblclick();
+    await page.waitForTimeout(200);
+
+    const cellInput = page.locator('[data-testid="csv-cell-input"]').first();
+    if (!(await cellInput.isVisible())) {
+      throw new Error('Inline cell edit input failed to open on double click!');
+    }
+    await cellInput.fill('Alice Wonder');
+    await cellInput.press('Enter');
+    await page.waitForTimeout(400);
+
+    const updatedCell = page.locator('text="Alice Wonder"').first();
+    if (!(await updatedCell.isVisible())) {
+      throw new Error('Cell value was not updated after Enter key!');
+    }
+    console.log('✅ CSV Inline Cell Editing works! Value updated to "Alice Wonder".');
+
+    // Verify Unsaved badge appeared on Left path
+    const unsavedBadge = page.locator('text="(Unsaved)"').first();
+    if (!(await unsavedBadge.isVisible())) {
+      throw new Error('Expected (Unsaved) indicator after editing CSV cell!');
+    }
+    console.log('✅ (Unsaved) state triggered upon CSV cell edit');
+
     // 6. Verify Diff Options Persistence in LocalStorage
     console.log('💾 Verifying Diff Options persistence in localStorage...');
     const savedPrefsRaw = await page.evaluate(() => localStorage.getItem('aerodiff_user_diff_options'));
@@ -252,9 +289,9 @@ async function run() {
 
     // 7. Verify Horizontal Scroll Containers Exist (both Left and Right)
     console.log('↔️ Verifying dual horizontal scroll containers...');
-    const scrollContainers = page.locator('.overflow-auto');
+    const scrollContainers = page.locator('.overflow-x-auto');
     const scrollCount = await scrollContainers.count();
-    console.log(`Found ${scrollCount} scroll containers with overflow-auto`);
+    console.log(`Found ${scrollCount} scroll containers with overflow-x-auto`);
     if (scrollCount < 2) throw new Error('Dual scroll containers (left & right) are missing');
     console.log('✅ Dual scroll containers with horizontal scrolling support are verified');
 

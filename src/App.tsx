@@ -4,7 +4,6 @@ import { TabBar } from './components/tabs/TabBar';
 import { WelcomeView } from './components/views/WelcomeView';
 import { FolderCompareView } from './components/views/FolderCompareView';
 import { FileCompareView } from './components/views/FileCompareView';
-import { CsvCompareView } from './components/views/CsvCompareView';
 import { StatusBar } from './components/layout/StatusBar';
 
 export const App: React.FC = () => {
@@ -81,8 +80,7 @@ export const App: React.FC = () => {
       <main className="flex-1 flex overflow-hidden relative">
         {(!activeTab || activeTab.type === 'welcome') && <WelcomeView />}
         {activeTab?.type === 'folder' && <FolderCompareView />}
-        {activeTab?.type === 'file' && <FileCompareView />}
-        {activeTab?.type === 'csv' && <CsvCompareView />}
+        {(activeTab?.type === 'file' || activeTab?.type === 'csv') && <FileCompareView />}
       </main>
 
       {/* Bottom Status Bar */}

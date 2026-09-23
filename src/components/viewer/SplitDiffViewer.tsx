@@ -1,8 +1,9 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowRight, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
 import { DiffLine, InlineSpan } from '../../types/diff';
+import { MasterVerticalScrollbar } from './MasterVerticalScrollbar';
 
 export const SplitDiffViewer: React.FC = () => {
   const { getActiveTab, mergeChunkAction } = useTabStore();
@@ -10,11 +11,13 @@ export const SplitDiffViewer: React.FC = () => {
   const diffResult = activeTab?.diffResult;
   const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
 
+  const parentContainerRef = useRef<HTMLDivElement>(null);
   const leftContainerRef = useRef<HTMLDivElement>(null);
   const rightContainerRef = useRef<HTMLDivElement>(null);
   const gutterContainerRef = useRef<HTMLDivElement>(null);
-  const activeScrollSource = useRef<'left' | 'right' | null>(null);
-  const scrollRafId = useRef<number | null>(null);
+
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(600);
 
   const lines = diffResult?.lines || [];
 
@@ -25,6 +28,62 @@ export const SplitDiffViewer: React.FC = () => {
     overscan: 25,
   });
 
+  // Track parent viewport height with ResizeObserver
+  useEffect(() => {
+    const el = parentContainerRef.current;
+    if (!el) return;
+
+    setViewportHeight(el.clientHeight);
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setViewportHeight(entry.contentRect.height);
+      }
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [lines.length]);
+
+  // Synchronized scroll applicator with zero ping-pong
+  const applyScrollTop = useCallback((newTop: number) => {
+    setScrollTop(newTop);
+    if (leftContainerRef.current && leftContainerRef.current.scrollTop !== newTop) {
+      leftContainerRef.current.scrollTop = newTop;
+    }
+    if (rightContainerRef.current && rightContainerRef.current.scrollTop !== newTop) {
+      rightContainerRef.current.scrollTop = newTop;
+    }
+    if (gutterContainerRef.current && gutterContainerRef.current.scrollTop !== newTop) {
+      gutterContainerRef.current.scrollTop = newTop;
+    }
+  }, []);
+
+  // Non-passive wheel listener on parent to lock vertical scrolling across all panes
+  useEffect(() => {
+    const el = parentContainerRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) > 0) {
+        const totalSize = rowVirtualizer.getTotalSize();
+        const maxScroll = Math.max(0, totalSize - el.clientHeight);
+        if (maxScroll > 0) {
+          e.preventDefault();
+          setScrollTop((prev) => {
+            const next = Math.max(0, Math.min(maxScroll, prev + e.deltaY));
+            if (leftContainerRef.current) leftContainerRef.current.scrollTop = next;
+            if (rightContainerRef.current) rightContainerRef.current.scrollTop = next;
+            if (gutterContainerRef.current) gutterContainerRef.current.scrollTop = next;
+            return next;
+          });
+        }
+      }
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [rowVirtualizer]);
+
   // Scroll to active chunk when activeChunkIndex changes
   useEffect(() => {
     if (diffResult && diffResult.chunks.length > 0) {
@@ -32,60 +91,12 @@ export const SplitDiffViewer: React.FC = () => {
       if (activeChunk) {
         const lineIdx = lines.findIndex((l) => l.chunk_id === activeChunk.chunk_id);
         if (lineIdx !== -1) {
-          rowVirtualizer.scrollToIndex(lineIdx, { align: 'center', behavior: 'smooth' });
+          const targetOffset = Math.max(0, lineIdx * 20 - 100);
+          applyScrollTop(targetOffset);
         }
       }
     }
-  }, [activeChunkIndex, diffResult]);
-
-  // Dual Synchronized Vertical Scroll Handlers (Pure Vertical, Independent Horizontal)
-  const handleLeftScroll = () => {
-    if (activeScrollSource.current === 'right') return;
-    const left = leftContainerRef.current;
-    if (!left) return;
-
-    activeScrollSource.current = 'left';
-    const top = left.scrollTop;
-
-    if (rightContainerRef.current && rightContainerRef.current.scrollTop !== top) {
-      rightContainerRef.current.scrollTop = top;
-    }
-    if (gutterContainerRef.current && gutterContainerRef.current.scrollTop !== top) {
-      gutterContainerRef.current.scrollTop = top;
-    }
-
-    if (scrollRafId.current) cancelAnimationFrame(scrollRafId.current);
-    scrollRafId.current = requestAnimationFrame(() => {
-      activeScrollSource.current = null;
-    });
-  };
-
-  const handleRightScroll = () => {
-    if (activeScrollSource.current === 'left') return;
-    const right = rightContainerRef.current;
-    if (!right) return;
-
-    activeScrollSource.current = 'right';
-    const top = right.scrollTop;
-
-    if (leftContainerRef.current && leftContainerRef.current.scrollTop !== top) {
-      leftContainerRef.current.scrollTop = top;
-    }
-    if (gutterContainerRef.current && gutterContainerRef.current.scrollTop !== top) {
-      gutterContainerRef.current.scrollTop = top;
-    }
-
-    if (scrollRafId.current) cancelAnimationFrame(scrollRafId.current);
-    scrollRafId.current = requestAnimationFrame(() => {
-      activeScrollSource.current = null;
-    });
-  };
-
-  const handleGutterWheel = (e: React.WheelEvent) => {
-    if (rightContainerRef.current) {
-      rightContainerRef.current.scrollTop += e.deltaY;
-    }
-  };
+  }, [activeChunkIndex, diffResult, applyScrollTop, lines]);
 
   const renderInlineText = (text: string | null, spans: InlineSpan[], isDelete: boolean) => {
     if (text === null) return null;
@@ -116,23 +127,22 @@ export const SplitDiffViewer: React.FC = () => {
     );
   };
 
-  const getLineClass = (type: DiffLine['line_type'], isActive: boolean) => {
-    let base = 'flex items-center text-xs font-mono select-text leading-5 ';
-    if (isActive) {
-      base += 'ring-1 ring-emerald-500/40 ';
+  const getLineClass = (type: string, isActiveChunk: boolean) => {
+    let base = 'hover:bg-neutral-900/40 text-neutral-300';
+    if (type === 'Added') {
+      base = 'bg-emerald-500/15 text-emerald-100 border-l-2 border-emerald-500';
+    } else if (type === 'Deleted') {
+      base = 'bg-rose-500/15 text-rose-100 border-l-2 border-rose-500';
+    } else if (type === 'Modified') {
+      base = 'bg-amber-500/15 text-amber-100 border-l-2 border-amber-500';
+    } else if (type === 'Empty') {
+      base = 'bg-neutral-900/40 opacity-30 select-none';
     }
-    switch (type) {
-      case 'Added':
-        return base + 'bg-emerald-500/15 text-emerald-100 border-l-2 border-emerald-500';
-      case 'Deleted':
-        return base + 'bg-rose-500/15 text-rose-100 border-l-2 border-rose-500';
-      case 'Modified':
-        return base + 'bg-amber-500/15 text-amber-100 border-l-2 border-amber-500';
-      case 'Empty':
-        return base + 'bg-neutral-900/60 text-transparent select-none';
-      default:
-        return base + 'text-neutral-300 hover:bg-neutral-900/40';
+
+    if (isActiveChunk) {
+      base += ' ring-1 ring-emerald-500/40';
     }
+    return base;
   };
 
   return (
@@ -151,12 +161,11 @@ export const SplitDiffViewer: React.FC = () => {
       )}
 
       {lines.length > 0 && (
-        <div className="flex-1 flex overflow-hidden">
-          {/* === LEFT PANE CONTAINER (SCROLLABLE X + Y, SINGLE UNIFIED VERTICAL SCROLLBAR ON RIGHT) === */}
+        <div ref={parentContainerRef} className="flex-1 flex overflow-hidden relative">
+          {/* === LEFT PANE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
           <div
             ref={leftContainerRef}
-            onScroll={handleLeftScroll}
-            className="flex-1 overflow-auto border-r border-neutral-800 no-scrollbar-y"
+            className="flex-1 overflow-x-auto overflow-y-hidden border-r border-neutral-800"
           >
             <div
               style={{
@@ -174,9 +183,12 @@ export const SplitDiffViewer: React.FC = () => {
                   line.chunk_id !== null &&
                   diffResult?.chunks[activeChunkIndex]?.chunk_id === line.chunk_id;
 
-                const lineType = line.left_text !== null
-                  ? line.line_type === 'Modified' ? 'Modified' : line.line_type
-                  : 'Empty';
+                const lineType =
+                  line.left_text !== null
+                    ? line.line_type === 'Modified'
+                      ? 'Modified'
+                      : line.line_type
+                    : 'Empty';
 
                 return (
                   <div
@@ -212,7 +224,6 @@ export const SplitDiffViewer: React.FC = () => {
           {/* === MIDDLE GUTTER (MERGE ACTIONS) === */}
           <div
             ref={gutterContainerRef}
-            onWheel={handleGutterWheel}
             className="w-10 bg-neutral-900/80 border-r border-neutral-800 shrink-0 select-none overflow-hidden"
           >
             <div
@@ -227,7 +238,8 @@ export const SplitDiffViewer: React.FC = () => {
 
                 const isChunkStart =
                   line.chunk_id !== null &&
-                  (virtualRow.index === 0 || lines[virtualRow.index - 1].chunk_id !== line.chunk_id);
+                  (virtualRow.index === 0 ||
+                    lines[virtualRow.index - 1].chunk_id !== line.chunk_id);
 
                 return (
                   <div
@@ -262,11 +274,10 @@ export const SplitDiffViewer: React.FC = () => {
             </div>
           </div>
 
-          {/* === RIGHT PANE CONTAINER (SCROLLABLE X + Y) === */}
+          {/* === RIGHT PANE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
           <div
             ref={rightContainerRef}
-            onScroll={handleRightScroll}
-            className="flex-1 overflow-auto"
+            className="flex-1 overflow-x-auto overflow-y-hidden"
           >
             <div
               style={{
@@ -284,9 +295,12 @@ export const SplitDiffViewer: React.FC = () => {
                   line.chunk_id !== null &&
                   diffResult?.chunks[activeChunkIndex]?.chunk_id === line.chunk_id;
 
-                const lineType = line.right_text !== null
-                  ? line.line_type === 'Modified' ? 'Modified' : line.line_type
-                  : 'Empty';
+                const lineType =
+                  line.right_text !== null
+                    ? line.line_type === 'Modified'
+                      ? 'Modified'
+                      : line.line_type
+                    : 'Empty';
 
                 return (
                   <div
@@ -318,6 +332,14 @@ export const SplitDiffViewer: React.FC = () => {
               })}
             </div>
           </div>
+
+          {/* === MASTER VERTICAL SCROLLBAR (12PX, ALWAYS VISIBLE, HIGH CONTRAST) === */}
+          <MasterVerticalScrollbar
+            scrollTop={scrollTop}
+            totalHeight={rowVirtualizer.getTotalSize()}
+            viewportHeight={viewportHeight}
+            onScrollChange={applyScrollTop}
+          />
         </div>
       )}
     </div>

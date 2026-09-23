@@ -1,8 +1,9 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { CheckCircle2, ArrowRight, ArrowLeft } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
 import { DiffLine, DiffOptions } from '../../types/diff';
+import { MasterVerticalScrollbar } from '../viewer/MasterVerticalScrollbar';
 
 /**
  * Compare two cell values taking into account active diff options (case, whitespace)
@@ -65,14 +66,26 @@ function splitCsvCells(line: string | null, delimiter: string): string[] {
 }
 
 export const CsvCompareView: React.FC = () => {
-  const { getActiveTab, mergeChunkAction } = useTabStore();
-  const activeTab = getActiveTab();
+  const activeTab = useTabStore(
+    (state) => state.tabs.find((t) => t.id === state.activeTabId) || state.tabs[0]
+  );
+  const { mergeChunkAction, setLeftContent, setRightContent } = useTabStore();
 
+  const parentContainerRef = useRef<HTMLDivElement>(null);
   const leftContainerRef = useRef<HTMLDivElement>(null);
   const rightContainerRef = useRef<HTMLDivElement>(null);
   const gutterContainerRef = useRef<HTMLDivElement>(null);
-  const activeScrollSource = useRef<'left' | 'right' | null>(null);
-  const scrollRafId = useRef<number | null>(null);
+
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(600);
+
+  // Inline cell edit state
+  const [editingCell, setEditingCell] = useState<{
+    side: 'left' | 'right';
+    rowIndex: number;
+    colIndex: number;
+  } | null>(null);
+  const [editValue, setEditValue] = useState<string>('');
 
   const diffResult = activeTab?.diffResult;
   const options = activeTab?.options;
@@ -126,54 +139,169 @@ export const CsvCompareView: React.FC = () => {
     overscan: 25,
   });
 
-  // Dual Synchronized Scroll Handlers (Pure Vertical, Independent Horizontal)
-  const handleLeftScroll = () => {
-    if (activeScrollSource.current === 'right') return;
-    const left = leftContainerRef.current;
-    if (!left) return;
+  // Track parent viewport height
+  useEffect(() => {
+    const el = parentContainerRef.current;
+    if (!el) return;
 
-    activeScrollSource.current = 'left';
-    const top = left.scrollTop;
-
-    if (rightContainerRef.current && rightContainerRef.current.scrollTop !== top) {
-      rightContainerRef.current.scrollTop = top;
-    }
-    if (gutterContainerRef.current && gutterContainerRef.current.scrollTop !== top) {
-      gutterContainerRef.current.scrollTop = top;
-    }
-
-    if (scrollRafId.current) cancelAnimationFrame(scrollRafId.current);
-    scrollRafId.current = requestAnimationFrame(() => {
-      activeScrollSource.current = null;
+    setViewportHeight(el.clientHeight);
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setViewportHeight(entry.contentRect.height);
+      }
     });
-  };
 
-  const handleRightScroll = () => {
-    if (activeScrollSource.current === 'left') return;
-    const right = rightContainerRef.current;
-    if (!right) return;
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [parsedRows.length]);
 
-    activeScrollSource.current = 'right';
-    const top = right.scrollTop;
-
-    if (leftContainerRef.current && leftContainerRef.current.scrollTop !== top) {
-      leftContainerRef.current.scrollTop = top;
+  // Synchronized scroll applicator with zero feedback loops
+  const applyScrollTop = useCallback((newTop: number) => {
+    setScrollTop(newTop);
+    if (leftContainerRef.current && leftContainerRef.current.scrollTop !== newTop) {
+      leftContainerRef.current.scrollTop = newTop;
     }
-    if (gutterContainerRef.current && gutterContainerRef.current.scrollTop !== top) {
-      gutterContainerRef.current.scrollTop = top;
+    if (rightContainerRef.current && rightContainerRef.current.scrollTop !== newTop) {
+      rightContainerRef.current.scrollTop = newTop;
     }
-
-    if (scrollRafId.current) cancelAnimationFrame(scrollRafId.current);
-    scrollRafId.current = requestAnimationFrame(() => {
-      activeScrollSource.current = null;
-    });
-  };
-
-  const handleGutterWheel = (e: React.WheelEvent) => {
-    if (rightContainerRef.current) {
-      rightContainerRef.current.scrollTop += e.deltaY;
+    if (gutterContainerRef.current && gutterContainerRef.current.scrollTop !== newTop) {
+      gutterContainerRef.current.scrollTop = newTop;
     }
-  };
+  }, []);
+
+  // Non-passive wheel handler on parent container locking all panes synchronously
+  useEffect(() => {
+    const el = parentContainerRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) > 0) {
+        const totalSize = rowVirtualizer.getTotalSize() + 30; // +30 for header
+        const maxScroll = Math.max(0, totalSize - el.clientHeight);
+        if (maxScroll > 0) {
+          e.preventDefault();
+          setScrollTop((prev) => {
+            const next = Math.max(0, Math.min(maxScroll, prev + e.deltaY));
+            if (leftContainerRef.current) leftContainerRef.current.scrollTop = next;
+            if (rightContainerRef.current) rightContainerRef.current.scrollTop = next;
+            if (gutterContainerRef.current) gutterContainerRef.current.scrollTop = next;
+            return next;
+          });
+        }
+      }
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [rowVirtualizer]);
+
+  // Cell edit start
+  const startEditing = useCallback(
+    (side: 'left' | 'right', rowIndex: number, colIndex: number, defaultVal?: string) => {
+      const rowData = parsedRows[rowIndex];
+      if (!rowData) return;
+      const cells = side === 'left' ? rowData.leftCells : rowData.rightCells;
+      if (cells === null) return; // Cannot edit non-existent row on this side
+      const currentVal = defaultVal !== undefined ? defaultVal : cells[colIndex] ?? '';
+      setEditingCell({ side, rowIndex, colIndex });
+      setEditValue(currentVal);
+    },
+    [parsedRows]
+  );
+
+  // Cell edit commit
+  const commitEdit = useCallback(
+    (side: 'left' | 'right', rowIndex: number, colIndex: number, valToSave: string) => {
+      const rowData = parsedRows[rowIndex];
+      if (!rowData) {
+        setEditingCell(null);
+        return;
+      }
+      const lineNum = side === 'left' ? rowData.line.left_line_num : rowData.line.right_line_num;
+      if (!lineNum) {
+        setEditingCell(null);
+        return;
+      }
+
+      const rawContent = side === 'left' ? activeTab?.leftContent || '' : activeTab?.rightContent || '';
+      const fileLines = rawContent.split('\n');
+      const lineIdx = lineNum - 1;
+      if (lineIdx < 0 || lineIdx >= fileLines.length) {
+        setEditingCell(null);
+        return;
+      }
+
+      const origLine = fileLines[lineIdx];
+      const cells = splitCsvCells(origLine, delimiter);
+      while (cells.length <= colIndex) {
+        cells.push('');
+      }
+
+      if (cells[colIndex] === valToSave) {
+        setEditingCell(null);
+        return;
+      }
+
+      cells[colIndex] = valToSave;
+
+      const encodedLine = cells
+        .map((c) => {
+          if (c.includes(delimiter) || c.includes('"') || c.includes('\n')) {
+            return `"${c.replace(/"/g, '""')}"`;
+          }
+          return c;
+        })
+        .join(delimiter);
+
+      fileLines[lineIdx] = encodedLine;
+      const updatedContent = fileLines.join('\n');
+
+      if (side === 'left') {
+        setLeftContent(updatedContent);
+      } else {
+        setRightContent(updatedContent);
+      }
+
+      setEditingCell(null);
+    },
+    [activeTab, delimiter, parsedRows, setLeftContent, setRightContent]
+  );
+
+  // Key navigation inside cell editor (Enter, Tab, Esc)
+  const handleInputKeyDown = useCallback(
+    (
+      e: React.KeyboardEvent<HTMLInputElement>,
+      side: 'left' | 'right',
+      rowIndex: number,
+      colIndex: number
+    ) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commitEdit(side, rowIndex, colIndex, editValue);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setEditingCell(null);
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        commitEdit(side, rowIndex, colIndex, editValue);
+
+        if (!e.shiftKey) {
+          if (colIndex + 1 < maxCols) {
+            startEditing(side, rowIndex, colIndex + 1);
+          } else if (rowIndex + 1 < parsedRows.length) {
+            startEditing(side, rowIndex + 1, 0);
+          }
+        } else {
+          if (colIndex - 1 >= 0) {
+            startEditing(side, rowIndex, colIndex - 1);
+          } else if (rowIndex - 1 >= 0) {
+            startEditing(side, rowIndex - 1, maxCols - 1);
+          }
+        }
+      }
+    },
+    [commitEdit, editValue, maxCols, parsedRows.length, startEditing]
+  );
 
   const isIdentical = diffResult?.is_identical;
   const colWidth = 140;
@@ -199,12 +327,11 @@ export const CsvCompareView: React.FC = () => {
         )}
 
         {parsedRows.length > 0 && (
-          <>
-            {/* === LEFT TABLE CONTAINER (SCROLLABLE X + Y) === */}
+          <div ref={parentContainerRef} className="flex-1 flex overflow-hidden relative">
+            {/* === LEFT TABLE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
             <div
               ref={leftContainerRef}
-              onScroll={handleLeftScroll}
-              className="flex-1 overflow-auto border-r border-neutral-800 no-scrollbar-y"
+              className="flex-1 overflow-x-auto overflow-y-hidden border-r border-neutral-800"
             >
               <div
                 style={{
@@ -291,13 +418,46 @@ export const CsvCompareView: React.FC = () => {
                             const cellVal = leftCells[cIdx] ?? '';
                             const rightVal = rightCells?.[cIdx] ?? '';
                             const isDiffCell = isModified && !areCellsEqual(cellVal, rightVal, options);
+                            const isEditing =
+                              editingCell?.side === 'left' &&
+                              editingCell?.rowIndex === virtualRow.index &&
+                              editingCell?.colIndex === cIdx;
+
+                            if (isEditing) {
+                              return (
+                                <div
+                                  key={cIdx}
+                                  style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
+                                  className="p-0 border-r border-neutral-800/40 relative h-full flex items-center"
+                                >
+                                  <input
+                                    data-testid="csv-cell-input"
+                                    type="text"
+                                    autoFocus
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    onKeyDown={(e) =>
+                                      handleInputKeyDown(e, 'left', virtualRow.index, cIdx)
+                                    }
+                                    onBlur={() =>
+                                      commitEdit('left', virtualRow.index, cIdx, editValue)
+                                    }
+                                    onFocus={(e) => e.target.select()}
+                                    className="w-full h-full px-1.5 py-0 bg-neutral-900 text-neutral-100 font-mono text-[12px] border border-emerald-400 focus:outline-none shadow-xs z-20"
+                                  />
+                                </div>
+                              );
+                            }
 
                             return (
                               <div
                                 key={cIdx}
-                                title={cellVal}
+                                title={`${cellVal} (Double-click to edit)`}
+                                onDoubleClick={() =>
+                                  startEditing('left', virtualRow.index, cIdx, cellVal)
+                                }
                                 style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
-                                className={`px-2 py-1 truncate border-r border-neutral-800/40 leading-5 ${
+                                className={`px-2 py-1 truncate border-r border-neutral-800/40 leading-5 cursor-text hover:bg-neutral-800/50 ${
                                   isDiffCell
                                     ? 'bg-amber-500/25 text-amber-200 border-l border-r border-amber-500/40 font-semibold'
                                     : isDeleted
@@ -324,7 +484,6 @@ export const CsvCompareView: React.FC = () => {
             {/* === MIDDLE GUTTER (MERGE & STATUS) === */}
             <div
               ref={gutterContainerRef}
-              onWheel={handleGutterWheel}
               className="w-10 bg-neutral-900/90 border-r border-neutral-800 shrink-0 overflow-hidden select-none"
             >
               <div
@@ -398,11 +557,10 @@ export const CsvCompareView: React.FC = () => {
               </div>
             </div>
 
-            {/* === RIGHT TABLE CONTAINER (SCROLLABLE X + Y) === */}
+            {/* === RIGHT TABLE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
             <div
               ref={rightContainerRef}
-              onScroll={handleRightScroll}
-              className="flex-1 overflow-auto"
+              className="flex-1 overflow-x-auto overflow-y-hidden"
             >
               <div
                 style={{
@@ -489,13 +647,46 @@ export const CsvCompareView: React.FC = () => {
                             const cellVal = rightCells[cIdx] ?? '';
                             const leftVal = leftCells?.[cIdx] ?? '';
                             const isDiffCell = isModified && !areCellsEqual(cellVal, leftVal, options);
+                            const isEditing =
+                              editingCell?.side === 'right' &&
+                              editingCell?.rowIndex === virtualRow.index &&
+                              editingCell?.colIndex === cIdx;
+
+                            if (isEditing) {
+                              return (
+                                <div
+                                  key={cIdx}
+                                  style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
+                                  className="p-0 border-r border-neutral-800/40 relative h-full flex items-center"
+                                >
+                                  <input
+                                    data-testid="csv-cell-input"
+                                    type="text"
+                                    autoFocus
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    onKeyDown={(e) =>
+                                      handleInputKeyDown(e, 'right', virtualRow.index, cIdx)
+                                    }
+                                    onBlur={() =>
+                                      commitEdit('right', virtualRow.index, cIdx, editValue)
+                                    }
+                                    onFocus={(e) => e.target.select()}
+                                    className="w-full h-full px-1.5 py-0 bg-neutral-900 text-neutral-100 font-mono text-[12px] border border-emerald-400 focus:outline-none shadow-xs z-20"
+                                  />
+                                </div>
+                              );
+                            }
 
                             return (
                               <div
                                 key={cIdx}
-                                title={cellVal}
+                                title={`${cellVal} (Double-click to edit)`}
+                                onDoubleClick={() =>
+                                  startEditing('right', virtualRow.index, cIdx, cellVal)
+                                }
                                 style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
-                                className={`px-2 py-1 truncate border-r border-neutral-800/40 leading-5 ${
+                                className={`px-2 py-1 truncate border-r border-neutral-800/40 leading-5 cursor-text hover:bg-neutral-800/50 ${
                                   isDiffCell
                                     ? 'bg-amber-500/25 text-amber-200 border-l border-r border-amber-500/40 font-semibold'
                                     : isAdded
@@ -518,7 +709,15 @@ export const CsvCompareView: React.FC = () => {
                 })}
               </div>
             </div>
-          </>
+
+            {/* === MASTER VERTICAL SCROLLBAR (12PX, ALWAYS VISIBLE, HIGH CONTRAST) === */}
+            <MasterVerticalScrollbar
+              scrollTop={scrollTop}
+              totalHeight={rowVirtualizer.getTotalSize() + 30}
+              viewportHeight={viewportHeight}
+              onScrollChange={applyScrollTop}
+            />
+          </div>
         )}
       </div>
     </div>
