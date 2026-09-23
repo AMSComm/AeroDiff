@@ -13,13 +13,14 @@ export const SplitDiffViewer: React.FC = () => {
   const leftContainerRef = useRef<HTMLDivElement>(null);
   const rightContainerRef = useRef<HTMLDivElement>(null);
   const gutterContainerRef = useRef<HTMLDivElement>(null);
-  const isSyncingScroll = useRef(false);
+  const activeScrollSource = useRef<'left' | 'right' | null>(null);
+  const scrollRafId = useRef<number | null>(null);
 
   const lines = diffResult?.lines || [];
 
   const rowVirtualizer = useVirtualizer({
     count: lines.length,
-    getScrollElement: () => leftContainerRef.current,
+    getScrollElement: () => rightContainerRef.current,
     estimateSize: () => 20, // 20px line height per DESIGN.md
     overscan: 25,
   });
@@ -37,37 +38,53 @@ export const SplitDiffViewer: React.FC = () => {
     }
   }, [activeChunkIndex, diffResult]);
 
-  // Dual Synchronized Scroll Handlers (Vertical + Horizontal)
+  // Dual Synchronized Vertical Scroll Handlers (Pure Vertical, Independent Horizontal)
   const handleLeftScroll = () => {
-    if (isSyncingScroll.current) return;
+    if (activeScrollSource.current === 'right') return;
     const left = leftContainerRef.current;
     if (!left) return;
 
-    isSyncingScroll.current = true;
-    if (rightContainerRef.current) {
-      rightContainerRef.current.scrollTop = left.scrollTop;
-      rightContainerRef.current.scrollLeft = left.scrollLeft;
+    activeScrollSource.current = 'left';
+    const top = left.scrollTop;
+
+    if (rightContainerRef.current && rightContainerRef.current.scrollTop !== top) {
+      rightContainerRef.current.scrollTop = top;
     }
-    if (gutterContainerRef.current) {
-      gutterContainerRef.current.scrollTop = left.scrollTop;
+    if (gutterContainerRef.current && gutterContainerRef.current.scrollTop !== top) {
+      gutterContainerRef.current.scrollTop = top;
     }
-    isSyncingScroll.current = false;
+
+    if (scrollRafId.current) cancelAnimationFrame(scrollRafId.current);
+    scrollRafId.current = requestAnimationFrame(() => {
+      activeScrollSource.current = null;
+    });
   };
 
   const handleRightScroll = () => {
-    if (isSyncingScroll.current) return;
+    if (activeScrollSource.current === 'left') return;
     const right = rightContainerRef.current;
     if (!right) return;
 
-    isSyncingScroll.current = true;
-    if (leftContainerRef.current) {
-      leftContainerRef.current.scrollTop = right.scrollTop;
-      leftContainerRef.current.scrollLeft = right.scrollLeft;
+    activeScrollSource.current = 'right';
+    const top = right.scrollTop;
+
+    if (leftContainerRef.current && leftContainerRef.current.scrollTop !== top) {
+      leftContainerRef.current.scrollTop = top;
     }
-    if (gutterContainerRef.current) {
-      gutterContainerRef.current.scrollTop = right.scrollTop;
+    if (gutterContainerRef.current && gutterContainerRef.current.scrollTop !== top) {
+      gutterContainerRef.current.scrollTop = top;
     }
-    isSyncingScroll.current = false;
+
+    if (scrollRafId.current) cancelAnimationFrame(scrollRafId.current);
+    scrollRafId.current = requestAnimationFrame(() => {
+      activeScrollSource.current = null;
+    });
+  };
+
+  const handleGutterWheel = (e: React.WheelEvent) => {
+    if (rightContainerRef.current) {
+      rightContainerRef.current.scrollTop += e.deltaY;
+    }
   };
 
   const renderInlineText = (text: string | null, spans: InlineSpan[], isDelete: boolean) => {
@@ -135,11 +152,11 @@ export const SplitDiffViewer: React.FC = () => {
 
       {lines.length > 0 && (
         <div className="flex-1 flex overflow-hidden">
-          {/* === LEFT PANE CONTAINER (SCROLLABLE X + Y) === */}
+          {/* === LEFT PANE CONTAINER (SCROLLABLE X + Y, SINGLE UNIFIED VERTICAL SCROLLBAR ON RIGHT) === */}
           <div
             ref={leftContainerRef}
             onScroll={handleLeftScroll}
-            className="flex-1 overflow-auto border-r border-neutral-800"
+            className="flex-1 overflow-auto border-r border-neutral-800 no-scrollbar-y"
           >
             <div
               style={{
@@ -195,6 +212,7 @@ export const SplitDiffViewer: React.FC = () => {
           {/* === MIDDLE GUTTER (MERGE ACTIONS) === */}
           <div
             ref={gutterContainerRef}
+            onWheel={handleGutterWheel}
             className="w-10 bg-neutral-900/80 border-r border-neutral-800 shrink-0 select-none overflow-hidden"
           >
             <div

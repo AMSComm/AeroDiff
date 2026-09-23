@@ -4,21 +4,35 @@
   color-scheme: dark;
 }
 
-/* Custom scrollbars for space-optimized density */
+/* Custom scrollbars for high contrast, space-optimized density */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #09090b;
+  background: rgba(18, 18, 21, 0.75);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
-  border-radius: 4px;
+  background: #3f3f46;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: #71717a;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: #a1a1aa;
+}
+
+/* Hide vertical scrollbar on left pane while keeping horizontal scroll and wheel events intact */
+.no-scrollbar-y::-webkit-scrollbar:vertical {
+  display: none;
+  width: 0;
 }

@@ -98,6 +98,19 @@ async function run() {
     await leftTextarea.fill('function greet() {\n  return "Hello World";\n}');
     await rightTextarea.fill('function greet() {\n  return "Hello Brave World";\n  console.log("added line");\n}');
 
+    // Verify Line numbers in Edit Mode
+    console.log('🔢 Verifying line numbers in edit mode...');
+    const leftLine1 = page.locator('text="1"').first();
+    const leftLine3 = page.locator('text="3"').first();
+    if (!(await leftLine1.isVisible()) || !(await leftLine3.isVisible())) {
+      throw new Error('Line numbers not visible in edit mode gutter!');
+    }
+    const linesBadge = page.locator('text="3 lines"');
+    if (!(await linesBadge.isVisible())) {
+      throw new Error('Line count badge missing in edit mode!');
+    }
+    console.log('✅ Edit mode line numbers and dynamic line count verified!');
+
     // Switch to Visual Diff using the compact icon button
     console.log('🔄 Switching to Visual Diff via compact icon button...');
     const eyeBtn = page.locator('button[title*="Visual Diff"]');
@@ -109,6 +122,13 @@ async function run() {
     // Verify Diff Viewer is rendered with both panes
     const splitViewer = page.locator('.font-mono.text-\\[13px\\]');
     if (!(await splitViewer.isVisible())) throw new Error('SplitDiffViewer is not visible');
+
+    // Verify Left pane has no-scrollbar-y to prevent middle scrollbar
+    const leftPaneNoScrollbarY = page.locator('.no-scrollbar-y');
+    if ((await leftPaneNoScrollbarY.count()) === 0) {
+      throw new Error('Missing .no-scrollbar-y on left pane!');
+    }
+    console.log('✅ Single unified vertical scrollbar layout verified (.no-scrollbar-y applied to left pane)!');
 
     // Verify Right Pane is visible and not empty
     const rightPaneContent = await page.locator('text=Hello Brave World').first();

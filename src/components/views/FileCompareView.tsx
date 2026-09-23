@@ -20,6 +20,7 @@ import { useTabStore } from '../../stores/tabStore';
 import { SplitDiffViewer } from '../viewer/SplitDiffViewer';
 import { UnifiedDiffViewer } from '../viewer/UnifiedDiffViewer';
 import { DiffMinimap } from '../viewer/DiffMinimap';
+import { CodeEditorPane } from '../viewer/CodeEditorPane';
 import { CsvCompareView } from './CsvCompareView';
 
 export const FileCompareView: React.FC = () => {
@@ -334,37 +335,22 @@ export const FileCompareView: React.FC = () => {
           /* Side-by-Side Dual Table Mode */
           <CsvCompareView />
         ) : isEditing ? (
-          /* Live Edit Mode: Dual Textareas with live typing */
+          /* Live Edit Mode: Dual CodeEditorPanes with synchronized line numbers */
           <div className="flex-1 flex font-mono text-[13px] bg-neutral-950 overflow-hidden divide-x divide-neutral-800">
-            {/* Left Editor */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="bg-neutral-900 px-3 py-1 text-[11px] text-neutral-400 border-b border-neutral-800 flex justify-between">
-                <span>Left Editor:</span>
-                <span>{leftContent.split('\n').length} lines</span>
-              </div>
-              <textarea
-                value={leftContent}
-                onChange={(e) => setLeftContent(e.target.value)}
-                placeholder="Type or paste left content here..."
-                className="flex-1 p-3 bg-neutral-950 text-neutral-100 resize-none font-mono focus:outline-none leading-5"
-                spellCheck={false}
-              />
-            </div>
-
-            {/* Right Editor */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="bg-neutral-900 px-3 py-1 text-[11px] text-neutral-400 border-b border-neutral-800 flex justify-between">
-                <span>Right Editor:</span>
-                <span>{rightContent.split('\n').length} lines</span>
-              </div>
-              <textarea
-                value={rightContent}
-                onChange={(e) => setRightContent(e.target.value)}
-                placeholder="Type or paste right content here..."
-                className="flex-1 p-3 bg-neutral-950 text-neutral-100 resize-none font-mono focus:outline-none leading-5"
-                spellCheck={false}
-              />
-            </div>
+            <CodeEditorPane
+              title="Left Editor"
+              content={leftContent}
+              onChange={setLeftContent}
+              placeholder="Type or paste left content here..."
+              isDirty={isDirtyLeft}
+            />
+            <CodeEditorPane
+              title="Right Editor"
+              content={rightContent}
+              onChange={setRightContent}
+              placeholder="Type or paste right content here..."
+              isDirty={isDirtyRight}
+            />
           </div>
         ) : (
           /* Visual Diff View: Virtualized with Merging & Highlighting */
