@@ -147,4 +147,36 @@ describe('useTabStore Unit Tests', () => {
     expect(active?.leftPath).toBe('/b');
     expect(active?.rightPath).toBe('/a');
   });
+
+  it('should update line content and support undo', async () => {
+    const store = useTabStore.getState();
+    store.updateActiveTab({
+      leftContent: 'line 1\nline 2\nline 3',
+      rightContent: 'line 1\nline 2 mod\nline 3',
+      diffResult: {
+        total_left_lines: 3,
+        total_right_lines: 3,
+        added_chunks: 0,
+        deleted_chunks: 0,
+        modified_chunks: 1,
+        is_identical: false,
+        hash_matched: false,
+        lines: [],
+        chunks: [],
+      },
+    });
+
+    // Update line 2 in leftContent
+    await store.updateLineContent('left', 2, 'line 2 updated');
+    expect(useTabStore.getState().getActiveTab()?.leftContent).toBe('line 1\nline 2 updated\nline 3');
+    expect(useTabStore.getState().getActiveTab()?.isDirtyLeft).toBe(true);
+
+    // Insert line at position 2 in leftContent
+    await store.updateLineContent('left', 2, 'inserted line', true);
+    expect(useTabStore.getState().getActiveTab()?.leftContent).toBe('line 1\ninserted line\nline 2 updated\nline 3');
+
+    // Undo should restore previous state
+    store.undoAction();
+    expect(useTabStore.getState().getActiveTab()?.leftContent).toBe('line 1\nline 2 updated\nline 3');
+  });
 });

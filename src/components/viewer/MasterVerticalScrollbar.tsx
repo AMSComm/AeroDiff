@@ -98,7 +98,7 @@ export const MasterVerticalScrollbar: React.FC<MasterVerticalScrollbarProps> = (
       onClick={handleTrackClick}
       onWheel={handleTrackWheel}
       title="Master Vertical Scrollbar"
-      className={`w-3 bg-neutral-900/90 border-l border-neutral-800 shrink-0 relative select-none cursor-pointer z-10 ${className}`}
+      className={`w-3.5 bg-neutral-900/95 border-l border-neutral-800 shrink-0 relative select-none cursor-pointer z-10 ${className}`}
       style={{ height: '100%' }}
     >
       {isScrollable && (
@@ -106,7 +106,7 @@ export const MasterVerticalScrollbar: React.FC<MasterVerticalScrollbarProps> = (
           data-testid="master-scrollbar-thumb"
           onMouseDown={handleMouseDown}
           onClick={(e) => e.stopPropagation()}
-          className="absolute left-0.5 right-0.5 rounded-sm bg-neutral-500 hover:bg-neutral-400 active:bg-neutral-300 transition-colors cursor-grab active:cursor-grabbing shadow-xs"
+          className="absolute left-0.5 right-0.5 rounded bg-neutral-400 hover:bg-neutral-300 active:bg-white transition-colors cursor-grab active:cursor-grabbing shadow-xs border border-neutral-500/40"
           style={{
             top: `${thumbTop}px`,
             height: `${thumbHeight}px`,

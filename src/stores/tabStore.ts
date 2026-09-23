@@ -57,6 +57,12 @@ interface TabState {
   updateActiveTab: (updates: Partial<TabSession>) => void;
   setLeftContent: (content: string) => void;
   setRightContent: (content: string) => void;
+  updateLineContent: (
+    side: 'left' | 'right',
+    lineNum: number,
+    newText: string,
+    isInsert?: boolean
+  ) => Promise<void>;
   toggleEditing: () => void;
   setViewMode: (mode: ViewMode) => void;
   toggleIgnoreWhitespace: () => void;
@@ -441,6 +447,49 @@ export const useTabStore = create<TabState>((set, get) => ({
   setRightContent: (content) => {
     get().updateActiveTab({ rightContent: content, isDirtyRight: true });
     get().recomputeActiveDiff();
+  },
+
+  updateLineContent: async (side, lineNum, newText, isInsert = false) => {
+    const active = get().getActiveTab();
+    if (!active) return;
+
+    const isLeft = side === 'left';
+    const currentContent = isLeft ? active.leftContent : active.rightContent;
+    const lines = currentContent.split('\n');
+    const replacement = newText.split('\n');
+
+    if (isInsert) {
+      const insertIdx = Math.max(0, Math.min(lines.length, lineNum - 1));
+      lines.splice(insertIdx, 0, ...replacement);
+    } else {
+      while (lines.length < lineNum) {
+        lines.push('');
+      }
+      const targetIdx = Math.max(0, lineNum - 1);
+      lines.splice(targetIdx, 1, ...replacement);
+    }
+
+    const updatedContent = lines.join('\n');
+
+    if (active.diffResult) {
+      const snapshot: HistorySnapshot = {
+        leftContent: active.leftContent,
+        rightContent: active.rightContent,
+        diffResult: active.diffResult,
+      };
+      get().updateActiveTab({
+        history: [...active.history, snapshot],
+        future: [],
+      });
+    }
+
+    if (isLeft) {
+      get().updateActiveTab({ leftContent: updatedContent, isDirtyLeft: true });
+    } else {
+      get().updateActiveTab({ rightContent: updatedContent, isDirtyRight: true });
+    }
+
+    await get().recomputeActiveDiff();
   },
 
   toggleEditing: () => {

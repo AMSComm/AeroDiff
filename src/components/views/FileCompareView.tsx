@@ -324,6 +324,9 @@ export const FileCompareView: React.FC = () => {
           <span className="text-neutral-300 font-medium truncate">{leftPath || 'Untitled Left'}</span>
           {isDirtyLeft && <span className="text-amber-400 text-[10px] font-bold">(Unsaved)</span>}
         </div>
+        <div className="hidden lg:flex items-center space-x-1 text-[10px] text-neutral-500 font-sans shrink-0 px-2 select-none">
+          <span>💡 Double-click any line/cell to edit directly</span>
+        </div>
         <div className="truncate flex-1 text-right flex items-center justify-end space-x-2">
           {isDirtyRight && <span className="text-amber-400 text-[10px] font-bold">(Unsaved)</span>}
           <span className="text-neutral-300 font-medium truncate">{rightPath || 'Untitled Right'}</span>

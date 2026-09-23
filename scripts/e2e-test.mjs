@@ -135,6 +135,33 @@ async function run() {
     if (!(await rightPaneContent.isVisible())) throw new Error('Right pane diff content is missing!');
     console.log('✅ Right Pane displays modified content properly (not empty)!');
 
+    // 2b. Test Text Diff Inline Quick-Edit (double-click line in-place)
+    console.log('✏️ Testing Text Diff Inline Quick-Edit in SplitDiffViewer...');
+    await rightPaneContent.dblclick();
+    await page.waitForTimeout(200);
+
+    const textInput = page.locator('[data-testid="text-line-input"]');
+    if ((await textInput.count()) === 0) {
+      throw new Error('Text line input did not appear after double-click in SplitDiffViewer!');
+    }
+    await textInput.fill('Hello Direct Edited World');
+    await textInput.press('Enter');
+    await page.waitForTimeout(500);
+
+    // Verify text updated in view
+    const updatedLine = page.locator('text=Hello Direct Edited World').first();
+    if (!(await updatedLine.isVisible())) {
+      throw new Error('Edited text was not saved in SplitDiffViewer!');
+    }
+    console.log('✅ Text Diff Inline Quick-Edit successfully updated line in-place!');
+
+    // Check dirty state (Unsaved)
+    const textDiffUnsavedBadge = page.locator('text=(Unsaved)');
+    if ((await textDiffUnsavedBadge.count()) === 0) {
+      throw new Error('(Unsaved) badge not shown after inline text edit!');
+    }
+    console.log('✅ (Unsaved) state triggered upon Text Diff line edit');
+
     // 3. Test Options as Compact Icon Buttons
     console.log('🔘 Testing Compact Options Icon buttons...');
     // View mode Unified

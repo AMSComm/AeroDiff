@@ -5,8 +5,31 @@ import { useTabStore } from '../../stores/tabStore';
 import { DiffLine, InlineSpan } from '../../types/diff';
 import { MasterVerticalScrollbar } from './MasterVerticalScrollbar';
 
+function getTargetLineNum(
+  lines: DiffLine[],
+  virtualIndex: number,
+  side: 'left' | 'right'
+): { isInsert: boolean; lineNum: number } {
+  const line = lines[virtualIndex];
+  if (!line) return { isInsert: false, lineNum: 1 };
+  const existingNum = side === 'left' ? line.left_line_num : line.right_line_num;
+  if (existingNum !== null && existingNum !== undefined) {
+    return { isInsert: false, lineNum: existingNum };
+  }
+
+  // Find nearest preceding line with a valid line number for this side
+  for (let i = virtualIndex - 1; i >= 0; i--) {
+    const prevNum = side === 'left' ? lines[i].left_line_num : lines[i].right_line_num;
+    if (prevNum !== null && prevNum !== undefined) {
+      return { isInsert: true, lineNum: prevNum + 1 };
+    }
+  }
+
+  return { isInsert: true, lineNum: 1 };
+}
+
 export const SplitDiffViewer: React.FC = () => {
-  const { getActiveTab, mergeChunkAction } = useTabStore();
+  const { getActiveTab, mergeChunkAction, updateLineContent } = useTabStore();
   const activeTab = getActiveTab();
   const diffResult = activeTab?.diffResult;
   const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
@@ -15,9 +38,17 @@ export const SplitDiffViewer: React.FC = () => {
   const leftContainerRef = useRef<HTMLDivElement>(null);
   const rightContainerRef = useRef<HTMLDivElement>(null);
   const gutterContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
+  const [editingLine, setEditingLine] = useState<{
+    side: 'left' | 'right';
+    lineNum: number;
+    virtualIndex: number;
+    isInsert: boolean;
+  } | null>(null);
+  const [editValue, setEditValue] = useState('');
 
   const lines = diffResult?.lines || [];
 
@@ -97,6 +128,72 @@ export const SplitDiffViewer: React.FC = () => {
       }
     }
   }, [activeChunkIndex, diffResult, applyScrollTop, lines]);
+
+  useEffect(() => {
+    if (editingLine && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingLine]);
+
+  const handleStartEdit = (side: 'left' | 'right', virtualIndex: number) => {
+    const line = lines[virtualIndex];
+    if (!line) return;
+
+    const target = getTargetLineNum(lines, virtualIndex, side);
+    const initialText =
+      target.isInsert
+        ? ''
+        : (side === 'left' ? line.left_text : line.right_text) ?? '';
+
+    setEditingLine({
+      side,
+      lineNum: target.lineNum,
+      virtualIndex,
+      isInsert: target.isInsert,
+    });
+    setEditValue(initialText);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingLine) return;
+    const { side, lineNum, isInsert } = editingLine;
+    const val = editValue;
+    setEditingLine(null);
+
+    if (isInsert && val.trim() === '') {
+      return;
+    }
+
+    await updateLineContent(side, lineNum, val, isInsert);
+  };
+
+  const handleTabAdvance = async (forward: boolean) => {
+    if (!editingLine) return;
+    const currentSide = editingLine.side;
+    const currentIdx = editingLine.virtualIndex;
+    const val = editValue;
+    const isInsert = editingLine.isInsert;
+    const lineNum = editingLine.lineNum;
+
+    setEditingLine(null);
+    if (!isInsert || val.trim() !== '') {
+      await updateLineContent(currentSide, lineNum, val, isInsert);
+    }
+
+    const step = forward ? 1 : -1;
+    let nextIdx = currentIdx + step;
+    while (nextIdx >= 0 && nextIdx < lines.length) {
+      const nextLine = lines[nextIdx];
+      const hasText =
+        currentSide === 'left' ? nextLine.left_text !== null : nextLine.right_text !== null;
+      if (hasText) {
+        handleStartEdit(currentSide, nextIdx);
+        return;
+      }
+      nextIdx += step;
+    }
+  };
 
   const renderInlineText = (text: string | null, spans: InlineSpan[], isDelete: boolean) => {
     if (text === null) return null;
@@ -208,11 +305,45 @@ export const SplitDiffViewer: React.FC = () => {
                     </div>
 
                     {/* Left Content (Full text, no truncation, horizontal scrollable) */}
-                    <div className="px-2 whitespace-pre select-text leading-5">
-                      {line.left_text !== null ? (
-                        renderInlineText(line.left_text, line.left_inline, true)
+                    <div className="flex-1 px-2 whitespace-pre leading-5 min-w-0">
+                      {editingLine?.side === 'left' &&
+                      editingLine.virtualIndex === virtualRow.index ? (
+                        <input
+                          ref={inputRef}
+                          data-testid="text-line-input"
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleSaveEdit();
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              setEditingLine(null);
+                            } else if (e.key === 'Tab') {
+                              e.preventDefault();
+                              handleTabAdvance(!e.shiftKey);
+                            }
+                          }}
+                          onBlur={handleSaveEdit}
+                          autoFocus
+                          className="w-full h-5 leading-5 bg-neutral-900 text-white font-mono text-[13px] px-1 border border-emerald-500 rounded-xs outline-none shadow-xs"
+                        />
                       ) : (
-                        <span className="opacity-0 select-none">-</span>
+                        <div
+                          onDoubleClick={() => handleStartEdit('left', virtualRow.index)}
+                          className="cursor-text select-text w-full group flex items-center"
+                          title="Double-click to edit line"
+                        >
+                          {line.left_text !== null ? (
+                            renderInlineText(line.left_text, line.left_inline, true)
+                          ) : (
+                            <span className="opacity-0 group-hover:opacity-40 italic text-[11px] select-none text-neutral-400 transition-opacity">
+                              + double-click to insert
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -320,11 +451,45 @@ export const SplitDiffViewer: React.FC = () => {
                     </div>
 
                     {/* Right Content (Full text, no truncation, horizontal scrollable) */}
-                    <div className="px-2 whitespace-pre select-text leading-5">
-                      {line.right_text !== null ? (
-                        renderInlineText(line.right_text, line.right_inline, false)
+                    <div className="flex-1 px-2 whitespace-pre leading-5 min-w-0">
+                      {editingLine?.side === 'right' &&
+                      editingLine.virtualIndex === virtualRow.index ? (
+                        <input
+                          ref={inputRef}
+                          data-testid="text-line-input"
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleSaveEdit();
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              setEditingLine(null);
+                            } else if (e.key === 'Tab') {
+                              e.preventDefault();
+                              handleTabAdvance(!e.shiftKey);
+                            }
+                          }}
+                          onBlur={handleSaveEdit}
+                          autoFocus
+                          className="w-full h-5 leading-5 bg-neutral-900 text-white font-mono text-[13px] px-1 border border-emerald-500 rounded-xs outline-none shadow-xs"
+                        />
                       ) : (
-                        <span className="opacity-0 select-none">-</span>
+                        <div
+                          onDoubleClick={() => handleStartEdit('right', virtualRow.index)}
+                          className="cursor-text select-text w-full group flex items-center"
+                          title="Double-click to edit line"
+                        >
+                          {line.right_text !== null ? (
+                            renderInlineText(line.right_text, line.right_inline, false)
+                          ) : (
+                            <span className="opacity-0 group-hover:opacity-40 italic text-[11px] select-none text-neutral-400 transition-opacity">
+                              + double-click to insert
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
