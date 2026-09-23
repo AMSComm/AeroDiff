@@ -49,8 +49,22 @@ jobs:
           "
 
           if [ -f release_notes.md ]; then
-            gh release edit "$TARGET_TAG" --notes-file release_notes.md
-            echo "Successfully updated $TARGET_TAG release notes on GitHub!"
+            echo "Syncing release notes for $TARGET_TAG in repo ${{ github.repository }}..."
+            SUCCESS=false
+            for i in {1..5}; do
+              if gh release edit "$TARGET_TAG" --repo "${{ github.repository }}" --notes-file release_notes.md; then
+                echo "Successfully updated $TARGET_TAG release notes on GitHub!"
+                SUCCESS=true
+                break
+              fi
+              echo "Attempt $i failed to edit release $TARGET_TAG. Waiting 5 seconds before retry..."
+              sleep 5
+            done
+            if [ "$SUCCESS" != "true" ]; then
+              echo "Failed to edit release after 5 attempts. Checking if release exists..."
+              gh release view "$TARGET_TAG" --repo "${{ github.repository }}" || echo "Release $TARGET_TAG does not exist on GitHub."
+              exit 1
+            fi
           else
             echo "No release_notes.md file generated, skipping update."
           fi
