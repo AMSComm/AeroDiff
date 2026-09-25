@@ -40,6 +40,8 @@ export interface DiffResult {
   modified_chunks: number;
   is_identical: boolean;
   hash_matched: boolean;
+  session_id?: string | null;
+  total_virtual_lines?: number;
 }
 
 export type IgnoreWhitespace = 'None' | 'LeadingAndTrailing' | 'All';

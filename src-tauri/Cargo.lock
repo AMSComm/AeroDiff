@@ -15,6 +15,7 @@ dependencies = [
  "crc32fast",
  "csv",
  "encoding_rs",
+ "memchr",
  "memmap2",
  "rayon",
  "regex",
@@ -28,6 +29,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-updater",
  "tempfile",
+ "uuid",
  "walkdir",
 ]
 

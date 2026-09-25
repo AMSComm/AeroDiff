@@ -113,7 +113,7 @@ export async function extractDroppedItem(
   const fullPath = (file as any).path || file.name;
 
   let content: string | undefined = undefined;
-  if (!isFolder) {
+  if (!isFolder && (!file.size || file.size <= 5 * 1024 * 1024)) {
     try {
       content = await file.text();
       fileContentCache.set(fullPath, content);

@@ -3,6 +3,7 @@ pub mod hash;
 pub mod inline;
 pub mod merge;
 pub mod options;
+pub mod session;
 pub mod types;
 
 #[cfg(test)]

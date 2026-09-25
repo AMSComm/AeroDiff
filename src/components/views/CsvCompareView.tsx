@@ -2,8 +2,9 @@ import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { CheckCircle2, ArrowRight, ArrowLeft } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
-import { DiffLine, DiffOptions } from '../../types/diff';
+import { DiffOptions } from '../../types/diff';
 import { MasterVerticalScrollbar } from '../viewer/MasterVerticalScrollbar';
+import { useDiffSessionLines } from '../../hooks/useDiffSessionLines';
 
 /**
  * Compare two cell values taking into account active diff options (case, whitespace)
@@ -40,7 +41,6 @@ function splitCsvCells(line: string | null, delimiter: string): string[] {
     return line.split(delimiter).map((c) => c.trim());
   }
 
-  // Quoted CSV cell parser
   const cells: string[] = [];
   let current = '';
   let inQuotes = false;
@@ -89,71 +89,67 @@ export const CsvCompareView: React.FC = () => {
 
   const diffResult = activeTab?.diffResult;
   const options = activeTab?.options;
-  const lines: DiffLine[] = useMemo(() => diffResult?.lines || [], [diffResult]);
   const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
+
+  const { totalLines, getLine, requestRange } = useDiffSessionLines(diffResult);
 
   // Detect delimiter from first non-empty line
   const delimiter = useMemo(() => {
-    for (const l of lines) {
-      const text = l.left_text || l.right_text || '';
-      if (text.includes('\t')) return '\t';
-      if (text.includes(';')) return ';';
-      if (text.includes(',')) return ',';
-    }
+    const sample = getLine(0) || diffResult?.lines?.[0];
+    const text = sample?.left_text || sample?.right_text || '';
+    if (text.includes('\t')) return '\t';
+    if (text.includes(';')) return ';';
+    if (text.includes(',')) return ',';
     return ',';
-  }, [lines]);
+  }, [diffResult, getLine]);
 
-  // Pre-parse cells and compute max column count
-  const { parsedRows, maxCols, columnHeaders } = useMemo(() => {
-    let max = 1;
-    const parsed = lines.map((l) => {
-      const leftCells = l.left_text !== null ? splitCsvCells(l.left_text, delimiter) : null;
-      const rightCells = l.right_text !== null ? splitCsvCells(l.right_text, delimiter) : null;
-
-      if (leftCells && leftCells.length > max) max = leftCells.length;
-      if (rightCells && rightCells.length > max) max = rightCells.length;
-
-      return {
-        line: l,
-        leftCells,
-        rightCells,
-      };
-    });
-
-    // Detect column headers from first line if available
-    const firstLeft = parsed[0]?.leftCells;
-    const firstRight = parsed[0]?.rightCells;
+  // Derive column headers and count from the first line
+  const { maxCols, columnHeaders } = useMemo(() => {
+    const headerLine = getLine(0) || diffResult?.lines?.[0];
+    const leftH = headerLine?.left_text ? splitCsvCells(headerLine.left_text, delimiter) : [];
+    const rightH = headerLine?.right_text ? splitCsvCells(headerLine.right_text, delimiter) : [];
+    const max = Math.max(1, leftH.length, rightH.length);
     const headers: string[] = [];
     for (let c = 0; c < max; c++) {
-      headers.push(firstLeft?.[c] || firstRight?.[c] || `Col ${c + 1}`);
+      headers.push(leftH[c] || rightH[c] || `Col ${c + 1}`);
     }
-
-    return { parsedRows: parsed, maxCols: max, columnHeaders: headers };
-  }, [lines, delimiter]);
+    return { maxCols: max, columnHeaders: headers };
+  }, [diffResult, delimiter, getLine]);
 
   // Virtualizer for 60fps performance on large tables
   const rowVirtualizer = useVirtualizer({
-    count: parsedRows.length,
+    count: totalLines,
     getScrollElement: () => rightContainerRef.current,
     estimateSize: () => 26, // 26px row height for tables
     overscan: 25,
   });
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  useEffect(() => {
+    if (virtualItems.length > 0) {
+      const start = virtualItems[0].index;
+      const end = virtualItems[virtualItems.length - 1].index;
+      requestRange(start, end);
+    }
+  }, [virtualItems, requestRange]);
 
   // Track parent viewport height
   useEffect(() => {
     const el = parentContainerRef.current;
     if (!el) return;
 
-    setViewportHeight(el.clientHeight);
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setViewportHeight(entry.contentRect.height);
-      }
-    });
+    setViewportHeight(el.clientHeight || 600);
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          setViewportHeight(entry.contentRect.height);
+        }
+      });
 
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [parsedRows.length]);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+  }, [totalLines]);
 
   // Synchronized scroll applicator with zero feedback loops
   const applyScrollTop = useCallback((newTop: number) => {
@@ -220,14 +216,6 @@ export const CsvCompareView: React.FC = () => {
             return next;
           });
         }
-      } else if (Math.abs(e.deltaX) > 0) {
-        const target = e.target as HTMLElement | null;
-        if (target && gutterContainerRef.current?.contains(target)) {
-          if (leftContainerRef.current && rightContainerRef.current) {
-            leftContainerRef.current.scrollLeft += e.deltaX;
-            rightContainerRef.current.scrollLeft += e.deltaX;
-          }
-        }
       }
     };
 
@@ -235,29 +223,42 @@ export const CsvCompareView: React.FC = () => {
     return () => el.removeEventListener('wheel', handleWheel);
   }, [rowVirtualizer]);
 
-  // Cell edit start
+  // Jump to active chunk when navigation buttons clicked
+  useEffect(() => {
+    if (diffResult && diffResult.chunks.length > 0) {
+      const activeChunk = diffResult.chunks[activeChunkIndex];
+      if (activeChunk) {
+        const lineIdx = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
+        const targetOffset = Math.max(0, lineIdx * 26 - 100);
+        applyScrollTop(targetOffset);
+      }
+    }
+  }, [activeChunkIndex, diffResult, applyScrollTop]);
+
+  // Cell edit trigger
   const startEditing = useCallback(
     (side: 'left' | 'right', rowIndex: number, colIndex: number, defaultVal?: string) => {
-      const rowData = parsedRows[rowIndex];
-      if (!rowData) return;
-      const cells = side === 'left' ? rowData.leftCells : rowData.rightCells;
-      if (cells === null) return; // Cannot edit non-existent row on this side
+      const line = getLine(rowIndex);
+      if (!line) return;
+      const text = side === 'left' ? line.left_text : line.right_text;
+      if (text === null) return;
+      const cells = splitCsvCells(text, delimiter);
       const currentVal = defaultVal !== undefined ? defaultVal : cells[colIndex] ?? '';
       setEditingCell({ side, rowIndex, colIndex });
       setEditValue(currentVal);
     },
-    [parsedRows]
+    [getLine, delimiter]
   );
 
   // Cell edit commit
   const commitEdit = useCallback(
     (side: 'left' | 'right', rowIndex: number, colIndex: number, valToSave: string) => {
-      const rowData = parsedRows[rowIndex];
-      if (!rowData) {
+      const line = getLine(rowIndex);
+      if (!line) {
         setEditingCell(null);
         return;
       }
-      const lineNum = side === 'left' ? rowData.line.left_line_num : rowData.line.right_line_num;
+      const lineNum = side === 'left' ? line.left_line_num : line.right_line_num;
       if (!lineNum) {
         setEditingCell(null);
         return;
@@ -304,7 +305,7 @@ export const CsvCompareView: React.FC = () => {
 
       setEditingCell(null);
     },
-    [activeTab, delimiter, parsedRows, setLeftContent, setRightContent]
+    [activeTab, delimiter, getLine, setLeftContent, setRightContent]
   );
 
   // Key navigation inside cell editor (Enter, Tab, Esc)
@@ -328,7 +329,7 @@ export const CsvCompareView: React.FC = () => {
         if (!e.shiftKey) {
           if (colIndex + 1 < maxCols) {
             startEditing(side, rowIndex, colIndex + 1);
-          } else if (rowIndex + 1 < parsedRows.length) {
+          } else if (rowIndex + 1 < totalLines) {
             startEditing(side, rowIndex + 1, 0);
           }
         } else {
@@ -340,7 +341,7 @@ export const CsvCompareView: React.FC = () => {
         }
       }
     },
-    [commitEdit, editValue, maxCols, parsedRows.length, startEditing]
+    [commitEdit, editValue, maxCols, totalLines, startEditing]
   );
 
   const isIdentical = diffResult?.is_identical;
@@ -350,7 +351,7 @@ export const CsvCompareView: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col bg-neutral-950 text-neutral-200 select-none overflow-hidden text-xs">
       {/* Identical Notification Banner if applicable */}
-      {isIdentical && parsedRows.length > 0 && (
+      {isIdentical && totalLines > 0 && (
         <div className="bg-emerald-500/10 border-b border-emerald-500/30 px-3 py-1 flex items-center justify-center space-x-2 text-emerald-400 text-xs shrink-0 font-sans">
           <CheckCircle2 className="w-3.5 h-3.5" />
           <span>Both CSV tables are identical.</span>
@@ -360,13 +361,13 @@ export const CsvCompareView: React.FC = () => {
       {/* Main Dual Table Split View */}
       <div className="flex-1 flex overflow-hidden bg-neutral-950 select-none relative font-mono text-[12px]">
         {/* Empty state */}
-        {parsedRows.length === 0 && (
+        {totalLines === 0 && (
           <div className="flex-1 flex items-center justify-center text-neutral-500 text-xs font-sans">
             <span>{diffResult ? 'Both files are empty.' : 'Loading table diff...'}</span>
           </div>
         )}
 
-        {parsedRows.length > 0 && (
+        {totalLines > 0 && (
           <div ref={parentContainerRef} className="flex-1 flex overflow-hidden relative">
             {/* === LEFT TABLE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
             <div
@@ -406,10 +407,30 @@ export const CsvCompareView: React.FC = () => {
 
                 {/* Virtualized Left Table Rows */}
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const rowData = parsedRows[virtualRow.index];
-                  if (!rowData) return null;
+                  const line = getLine(virtualRow.index);
+                  if (!line) {
+                    return (
+                      <div
+                        key={virtualRow.index}
+                        className="absolute top-0 left-0 w-full flex items-stretch border-b border-neutral-900/50 bg-neutral-950 text-neutral-600"
+                        style={{
+                          height: `${virtualRow.size}px`,
+                          transform: `translateY(${virtualRow.start + 30}px)`,
+                        }}
+                      >
+                        <div className="sticky left-0 z-10 w-10 bg-neutral-900/60 text-neutral-600 text-right pr-2 shrink-0 border-r border-neutral-800/80 text-[11px] leading-6 select-none">
+                          {virtualRow.index + 1}
+                        </div>
+                        <div className="flex-1 flex items-center px-3">
+                          <span className="inline-block w-32 h-2.5 bg-neutral-900 rounded-xs animate-pulse opacity-40" />
+                        </div>
+                      </div>
+                    );
+                  }
 
-                  const { line, leftCells, rightCells } = rowData;
+                  const leftCells = line.left_text !== null ? splitCsvCells(line.left_text, delimiter) : null;
+                  const rightCells = line.right_text !== null ? splitCsvCells(line.right_text, delimiter) : null;
+
                   const isActiveChunk =
                     line.chunk_id !== null &&
                     diffResult?.chunks[activeChunkIndex]?.chunk_id === line.chunk_id;
@@ -540,14 +561,24 @@ export const CsvCompareView: React.FC = () => {
 
                 {/* Virtualized Gutter Items */}
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const rowData = parsedRows[virtualRow.index];
-                  if (!rowData) return null;
-                  const { line } = rowData;
+                  const line = getLine(virtualRow.index);
+                  if (!line) {
+                    return (
+                      <div
+                        key={virtualRow.index}
+                        className="absolute top-0 left-0 w-10 flex items-center justify-center border-b border-neutral-900/50 text-neutral-700 text-[10px]"
+                        style={{
+                          height: `${virtualRow.size}px`,
+                          transform: `translateY(${virtualRow.start + 30}px)`,
+                        }}
+                      />
+                    );
+                  }
 
+                  const prevLine = virtualRow.index > 0 ? getLine(virtualRow.index - 1) : null;
                   const isChunkStart =
                     line.chunk_id !== null &&
-                    (virtualRow.index === 0 ||
-                      parsedRows[virtualRow.index - 1].line.chunk_id !== line.chunk_id);
+                    (virtualRow.index === 0 || prevLine?.chunk_id !== line.chunk_id);
 
                   const isModified = line.line_type === 'Modified';
                   const isDeleted = line.line_type === 'Deleted';
@@ -636,10 +667,30 @@ export const CsvCompareView: React.FC = () => {
 
                 {/* Virtualized Right Table Rows */}
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const rowData = parsedRows[virtualRow.index];
-                  if (!rowData) return null;
+                  const line = getLine(virtualRow.index);
+                  if (!line) {
+                    return (
+                      <div
+                        key={virtualRow.index}
+                        className="absolute top-0 left-0 w-full flex items-stretch border-b border-neutral-900/50 bg-neutral-950 text-neutral-600"
+                        style={{
+                          height: `${virtualRow.size}px`,
+                          transform: `translateY(${virtualRow.start + 30}px)`,
+                        }}
+                      >
+                        <div className="sticky left-0 z-10 w-10 bg-neutral-900/60 text-neutral-600 text-right pr-2 shrink-0 border-r border-neutral-800/80 text-[11px] leading-6 select-none">
+                          {virtualRow.index + 1}
+                        </div>
+                        <div className="flex-1 flex items-center px-3">
+                          <span className="inline-block w-32 h-2.5 bg-neutral-900 rounded-xs animate-pulse opacity-40" />
+                        </div>
+                      </div>
+                    );
+                  }
 
-                  const { line, leftCells, rightCells } = rowData;
+                  const leftCells = line.left_text !== null ? splitCsvCells(line.left_text, delimiter) : null;
+                  const rightCells = line.right_text !== null ? splitCsvCells(line.right_text, delimiter) : null;
+
                   const isActiveChunk =
                     line.chunk_id !== null &&
                     diffResult?.chunks[activeChunkIndex]?.chunk_id === line.chunk_id;
@@ -652,8 +703,8 @@ export const CsvCompareView: React.FC = () => {
                     leftCells !== null &&
                     rightCells !== null &&
                     Array.from({ length: maxCols }).some((_, cIdx) => {
-                      const lv = leftCells?.[cIdx] ?? '';
-                      const rv = rightCells[cIdx] ?? '';
+                      const lv = leftCells[cIdx] ?? '';
+                      const rv = rightCells?.[cIdx] ?? '';
                       return !areCellsEqual(lv, rv, options);
                     });
                   const showModifiedBg = isModified && hasAnyDiffCell;
@@ -688,7 +739,7 @@ export const CsvCompareView: React.FC = () => {
                           Array.from({ length: maxCols }).map((_, cIdx) => {
                             const cellVal = rightCells[cIdx] ?? '';
                             const leftVal = leftCells?.[cIdx] ?? '';
-                            const isDiffCell = isModified && !areCellsEqual(cellVal, leftVal, options);
+                            const isDiffCell = isModified && !areCellsEqual(leftVal, cellVal, options);
                             const isEditing =
                               editingCell?.side === 'right' &&
                               editingCell?.rowIndex === virtualRow.index &&
@@ -751,16 +802,16 @@ export const CsvCompareView: React.FC = () => {
                 })}
               </div>
             </div>
-
-            {/* === MASTER VERTICAL SCROLLBAR (12PX, ALWAYS VISIBLE, HIGH CONTRAST) === */}
-            <MasterVerticalScrollbar
-              scrollTop={scrollTop}
-              totalHeight={rowVirtualizer.getTotalSize() + 30}
-              viewportHeight={viewportHeight}
-              onScrollChange={applyScrollTop}
-            />
           </div>
         )}
+
+        {/* Unified Vertical Master Scrollbar */}
+        <MasterVerticalScrollbar
+          scrollTop={scrollTop}
+          totalHeight={rowVirtualizer.getTotalSize() + 30}
+          viewportHeight={viewportHeight}
+          onScrollChange={applyScrollTop}
+        />
       </div>
     </div>
   );

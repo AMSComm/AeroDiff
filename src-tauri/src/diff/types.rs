@@ -58,4 +58,8 @@ pub struct DiffResult {
     pub modified_chunks: usize,
     pub is_identical: bool,
     pub hash_matched: bool,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub total_virtual_lines: usize,
 }

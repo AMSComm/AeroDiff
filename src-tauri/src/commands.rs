@@ -1,14 +1,16 @@
 use crate::csv::engine::compare_csv;
 use crate::csv::types::CsvCompareResult;
-use crate::diff::engine::compute_diff;
+use crate::diff::engine::{compute_diff, compute_diff_session_from_sources};
 use crate::diff::merge::{merge_chunk_left_to_right, merge_chunk_right_to_left};
 use crate::diff::options::DiffOptions;
-use crate::diff::types::DiffResult;
+use crate::diff::session::{get_diff_session_manager, SourceBuffer};
+use crate::diff::types::{DiffLine, DiffResult};
 use crate::folder::engine::compare_folders;
 use crate::folder::types::FolderCompareResult;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MergeResponse {
@@ -17,7 +19,7 @@ pub struct MergeResponse {
     pub updated_diff: DiffResult,
 }
 
-pub const MAX_FILE_SIZE: u64 = 30 * 1024 * 1024; // 30 MB
+pub const MAX_FILE_SIZE: u64 = 1024 * 1024 * 1024; // 1 GB
 
 pub fn is_binary_content(bytes: &[u8]) -> bool {
     let check_len = bytes.len().min(8192);
@@ -26,11 +28,13 @@ pub fn is_binary_content(bytes: &[u8]) -> bool {
 
 #[tauri::command]
 pub async fn compare_text(left: String, right: String, options: DiffOptions) -> Result<DiffResult, String> {
-    if left.len() > MAX_FILE_SIZE as usize || right.len() > MAX_FILE_SIZE as usize {
-        return Err("Content exceeds 30 MB maximum size for real-time visual diffing.".to_string());
+    if left.len() > 500 * 1024 * 1024 || right.len() > 500 * 1024 * 1024 {
+        return Err("Content exceeds 500 MB maximum size for real-time visual diffing.".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        Ok(compute_diff(&left, &right, &options))
+        let left_src = SourceBuffer::Memory(Arc::new(left.into_bytes()));
+        let right_src = SourceBuffer::Memory(Arc::new(right.into_bytes()));
+        Ok(compute_diff_session_from_sources(left_src, right_src, &options))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -42,6 +46,8 @@ use encoding_rs::{EUC_JP, SHIFT_JIS, UTF_8};
 pub struct FileContentResult {
     pub content: String,
     pub encoding: String,
+    #[serde(default)]
+    pub is_truncated: bool,
 }
 
 pub fn decode_bytes_with_encoding(
@@ -110,7 +116,7 @@ pub fn compare_files(
     if meta_l.len() > MAX_FILE_SIZE {
         let size_mb = meta_l.len() as f64 / (1024.0 * 1024.0);
         return Err(format!(
-            "Left file '{}' is too large ({:.1} MB). AeroDiff supports text files up to 30 MB for real-time visual diffing.",
+            "Left file '{}' is too large ({:.1} MB). AeroDiff supports text files up to 1 GB.",
             p_left.file_name().and_then(|n| n.to_str()).unwrap_or(clean_l),
             size_mb
         ));
@@ -120,48 +126,48 @@ pub fn compare_files(
     if meta_r.len() > MAX_FILE_SIZE {
         let size_mb = meta_r.len() as f64 / (1024.0 * 1024.0);
         return Err(format!(
-            "Right file '{}' is too large ({:.1} MB). AeroDiff supports text files up to 30 MB for real-time visual diffing.",
+            "Right file '{}' is too large ({:.1} MB). AeroDiff supports text files up to 1 GB.",
             p_right.file_name().and_then(|n| n.to_str()).unwrap_or(clean_r),
             size_mb
         ));
     }
 
-    let bytes_l = fs::read(p_left).map_err(|e| format!("Failed to read left file: {}", e))?;
-    if is_binary_content(&bytes_l) {
-        return Err(format!(
-            "Left file '{}' appears to be a binary file. AeroDiff supports text and CSV files.",
-            p_left.file_name().and_then(|n| n.to_str()).unwrap_or(clean_l)
-        ));
+    let check_binary = |path: &Path| -> Result<bool, String> {
+        use std::io::Read;
+        let mut f = fs::File::open(path).map_err(|e| e.to_string())?;
+        let mut buf = [0u8; 8192];
+        let n = f.read(&mut buf).map_err(|e| e.to_string())?;
+        Ok(is_binary_content(&buf[..n]))
+    };
+
+    if check_binary(p_left)? {
+        return Err(format!("Left file '{}' appears to be a binary file. AeroDiff supports text and CSV files.", clean_l));
+    }
+    if check_binary(p_right)? {
+        return Err(format!("Right file '{}' appears to be a binary file. AeroDiff supports text and CSV files.", clean_r));
     }
 
-    let bytes_r = fs::read(p_right).map_err(|e| format!("Failed to read right file: {}", e))?;
-    if is_binary_content(&bytes_r) {
-        return Err(format!(
-            "Right file '{}' appears to be a binary file. AeroDiff supports text and CSV files.",
-            p_right.file_name().and_then(|n| n.to_str()).unwrap_or(clean_r)
-        ));
-    }
+    let left_src = if meta_l.len() > 5 * 1024 * 1024 {
+        let f = fs::File::open(p_left).map_err(|e| format!("Failed to open left file: {}", e))?;
+        let mmap = unsafe { memmap2::Mmap::map(&f) }.map_err(|e| format!("Failed to mmap left file: {}", e))?;
+        SourceBuffer::Mmap(Arc::new(mmap))
+    } else {
+        let bytes_l = fs::read(p_left).map_err(|e| format!("Failed to read left file: {}", e))?;
+        let (decoded, _) = decode_bytes_with_encoding(&bytes_l, left_encoding.as_deref());
+        SourceBuffer::Memory(Arc::new(decoded.into_bytes()))
+    };
 
-    if bytes_l == bytes_r && options == DiffOptions::default() && left_encoding == right_encoding {
-        let (left, _) = decode_bytes_with_encoding(&bytes_l, left_encoding.as_deref());
-        let count = left.lines().count();
-        return Ok(DiffResult {
-            lines: Vec::new(),
-            chunks: Vec::new(),
-            total_left_lines: count,
-            total_right_lines: count,
-            added_chunks: 0,
-            deleted_chunks: 0,
-            modified_chunks: 0,
-            is_identical: true,
-            hash_matched: true,
-        });
-    }
+    let right_src = if meta_r.len() > 5 * 1024 * 1024 {
+        let f = fs::File::open(p_right).map_err(|e| format!("Failed to open right file: {}", e))?;
+        let mmap = unsafe { memmap2::Mmap::map(&f) }.map_err(|e| format!("Failed to mmap right file: {}", e))?;
+        SourceBuffer::Mmap(Arc::new(mmap))
+    } else {
+        let bytes_r = fs::read(p_right).map_err(|e| format!("Failed to read right file: {}", e))?;
+        let (decoded, _) = decode_bytes_with_encoding(&bytes_r, right_encoding.as_deref());
+        SourceBuffer::Memory(Arc::new(decoded.into_bytes()))
+    };
 
-    let (left, _) = decode_bytes_with_encoding(&bytes_l, left_encoding.as_deref());
-    let (right, _) = decode_bytes_with_encoding(&bytes_r, right_encoding.as_deref());
-
-    Ok(compute_diff(&left, &right, &options))
+    Ok(compute_diff_session_from_sources(left_src, right_src, &options))
 }
 
 #[tauri::command]
@@ -235,13 +241,24 @@ pub fn read_file(path: String, encoding: Option<String>) -> Result<FileContentRe
     if metadata.len() > MAX_FILE_SIZE {
         let size_mb = metadata.len() as f64 / (1024.0 * 1024.0);
         return Err(format!(
-            "File '{}' is too large ({:.1} MB). AeroDiff supports text files up to 30 MB for real-time visual diffing.",
+            "File '{}' is too large ({:.1} MB). AeroDiff supports text files up to 1 GB.",
             p.file_name().and_then(|n| n.to_str()).unwrap_or(clean),
             size_mb
         ));
     }
 
-    let bytes = fs::read(clean).map_err(|e| format!("Failed to read file '{}': {}", clean, e))?;
+    let is_truncated = metadata.len() > 10 * 1024 * 1024;
+    let bytes = if is_truncated {
+        use std::io::Read;
+        let mut file = fs::File::open(p).map_err(|e| format!("Failed to open file '{}': {}", clean, e))?;
+        let mut buf = vec![0u8; 10 * 1024 * 1024];
+        let n = file.read(&mut buf).map_err(|e| format!("Failed to read file '{}': {}", clean, e))?;
+        buf.truncate(n);
+        buf
+    } else {
+        fs::read(clean).map_err(|e| format!("Failed to read file '{}': {}", clean, e))?
+    };
+
     if is_binary_content(&bytes) {
         return Err(format!(
             "'{}' appears to be a binary file. AeroDiff supports text and CSV files.",
@@ -253,6 +270,7 @@ pub fn read_file(path: String, encoding: Option<String>) -> Result<FileContentRe
     Ok(FileContentResult {
         content,
         encoding: enc_name,
+        is_truncated,
     })
 }
 
@@ -291,6 +309,21 @@ pub async fn compare_csv_cmd(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn get_diff_slice(
+    session_id: String,
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<DiffLine>, String> {
+    get_diff_session_manager().get_slice(&session_id, offset, limit)
+}
+
+#[tauri::command]
+pub fn close_diff_session(session_id: String) -> Result<(), String> {
+    get_diff_session_manager().remove_session(&session_id);
+    Ok(())
 }
 
 #[cfg(test)]

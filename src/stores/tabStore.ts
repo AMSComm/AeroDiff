@@ -3,10 +3,12 @@ import { TabSession, TabType, HistorySnapshot } from '../types/tab';
 import { DiffOptions, DiffResult, FolderCompareResult, CsvCompareResult, ViewMode, IgnoreWhitespace } from '../types/diff';
 import {
   invokeCompareText,
+  invokeCompareFiles,
   invokeCompareFolders,
   invokeCompareCsv,
   invokeMergeChunk,
   invokeSaveFile,
+  invokeCloseDiffSession,
 } from '../utils/ipc';
 import { readFileContent } from '../utils/filePicker';
 import { cleanPath } from '../utils/pathUtils';
@@ -140,6 +142,11 @@ export const useTabStore = create<TabState>((set, get) => ({
 
   closeTab: (id: string) => {
     const { tabs, activeTabId } = get();
+    const closingTab = tabs.find((t) => t.id === id);
+    if (closingTab?.diffResult?.session_id) {
+      invokeCloseDiffSession(closingTab.diffResult.session_id).catch(() => {});
+    }
+
     if (tabs.length === 1) {
       // If closing only tab, reset to welcome tab
       const freshTab = createDefaultSession('welcome');
@@ -288,13 +295,7 @@ export const useTabStore = create<TabState>((set, get) => ({
     }));
 
     if (!readError) {
-      try {
-        const res = await invokeCompareCsv(lContent, rContent, undefined, newTab.options);
-        get().updateActiveTab({ csvResult: res, isComputing: false, diffError: null });
-      } catch (e: any) {
-        console.error('Failed to compare CSV:', e);
-        get().updateActiveTab({ isComputing: false, diffError: e?.message || String(e) });
-      }
+      await get().recomputeActiveDiff();
     }
 
     return newTab.id;
@@ -406,27 +407,7 @@ export const useTabStore = create<TabState>((set, get) => ({
       diffError: null,
     });
 
-    if (targetType === 'csv') {
-      try {
-        const [csvRes, diffRes] = await Promise.all([
-          invokeCompareCsv(safeL, safeR, undefined, activeTab.options),
-          invokeCompareText(safeL, safeR, activeTab.options),
-        ]);
-        get().updateActiveTab({
-          csvResult: csvRes,
-          diffResult: diffRes,
-          isComputing: false,
-          diffError: null,
-        });
-      } catch (e: any) {
-        console.error('Failed to compare CSV:', e);
-        const errMsg = e?.message || String(e);
-        get().updateActiveTab({ isComputing: false, diffError: errMsg });
-        throw new Error(errMsg);
-      }
-    } else {
-      await get().recomputeActiveDiff();
-    }
+    await get().recomputeActiveDiff();
   },
 
   toggleCsvViewMode: async () => {
@@ -575,6 +556,10 @@ export const useTabStore = create<TabState>((set, get) => ({
     const active = get().getActiveTab();
     if (!active) return;
 
+    if (active.diffResult?.session_id) {
+      invokeCloseDiffSession(active.diffResult.session_id).catch(() => {});
+    }
+
     get().updateActiveTab({ isComputing: true });
     const start = performance.now();
 
@@ -585,9 +570,29 @@ export const useTabStore = create<TabState>((set, get) => ({
         Boolean(active.leftPath?.toLowerCase().endsWith('.csv')) ||
         Boolean(active.rightPath?.toLowerCase().endsWith('.csv'));
 
+      const canUseFileCompare =
+        Boolean(active.leftPath && active.rightPath) &&
+        !active.isDirtyLeft &&
+        !active.isDirtyRight;
+
+      const diffPromise = canUseFileCompare
+        ? invokeCompareFiles(
+            active.leftPath!,
+            active.rightPath!,
+            active.options,
+            active.leftEncoding,
+            active.rightEncoding
+          )
+        : invokeCompareText(active.leftContent, active.rightContent, active.options);
+
+      const canRunCsvTable =
+        isCsv &&
+        (active.leftContent?.length || 0) < 5 * 1024 * 1024 &&
+        (active.rightContent?.length || 0) < 5 * 1024 * 1024;
+
       const [diffResult, csvResult] = await Promise.all([
-        invokeCompareText(active.leftContent, active.rightContent, active.options),
-        isCsv
+        diffPromise,
+        canRunCsvTable
           ? invokeCompareCsv(active.leftContent, active.rightContent, undefined, active.options)
           : Promise.resolve(active.csvResult),
       ]);

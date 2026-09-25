@@ -475,3 +475,35 @@ export async function invokeCompareCsv(
   }
   return computeLocalCsvDiff(leftContent, rightContent, keyColumn, options);
 }
+
+export async function invokeGetDiffSlice(
+  sessionId: string,
+  offset: number,
+  limit: number
+): Promise<import('../types/diff').DiffLine[]> {
+  if (isTauri()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return await invoke('get_diff_slice', {
+        sessionId,
+        offset,
+        limit,
+      });
+    } catch (err) {
+      console.warn('Tauri get_diff_slice error:', err);
+    }
+  }
+  return [];
+}
+
+export async function invokeCloseDiffSession(sessionId: string): Promise<void> {
+  if (isTauri()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('close_diff_session', { sessionId });
+    } catch (err) {
+      console.warn('Tauri close_diff_session error:', err);
+    }
+  }
+}
+

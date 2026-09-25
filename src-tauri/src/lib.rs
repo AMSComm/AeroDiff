@@ -20,7 +20,9 @@ pub fn run() {
             save_file,
             check_path,
             compare_folders_cmd,
-            compare_csv_cmd
+            compare_csv_cmd,
+            get_diff_slice,
+            close_diff_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running AeroDiff application");

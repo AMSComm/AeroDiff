@@ -1,25 +1,27 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowRight, ArrowLeft, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
 import { DiffLine, InlineSpan } from '../../types/diff';
 import { MasterVerticalScrollbar } from './MasterVerticalScrollbar';
+import { useDiffSessionLines } from '../../hooks/useDiffSessionLines';
 
 function getTargetLineNum(
-  lines: DiffLine[],
+  getLine: (idx: number) => DiffLine | undefined,
   virtualIndex: number,
   side: 'left' | 'right'
 ): { isInsert: boolean; lineNum: number } {
-  const line = lines[virtualIndex];
-  if (!line) return { isInsert: false, lineNum: 1 };
+  const line = getLine(virtualIndex);
+  if (!line) return { isInsert: false, lineNum: virtualIndex + 1 };
   const existingNum = side === 'left' ? line.left_line_num : line.right_line_num;
   if (existingNum !== null && existingNum !== undefined) {
     return { isInsert: false, lineNum: existingNum };
   }
 
   // Find nearest preceding line with a valid line number for this side
-  for (let i = virtualIndex - 1; i >= 0; i--) {
-    const prevNum = side === 'left' ? lines[i].left_line_num : lines[i].right_line_num;
+  for (let i = virtualIndex - 1; i >= Math.max(0, virtualIndex - 30); i--) {
+    const prev = getLine(i);
+    const prevNum = side === 'left' ? prev?.left_line_num : prev?.right_line_num;
     if (prevNum !== null && prevNum !== undefined) {
       return { isInsert: true, lineNum: prevNum + 1 };
     }
@@ -50,30 +52,41 @@ export const SplitDiffViewer: React.FC = () => {
   } | null>(null);
   const [editValue, setEditValue] = useState('');
 
-  const lines = diffResult?.lines || [];
+  const { totalLines, getLine, requestRange } = useDiffSessionLines(diffResult);
 
   const rowVirtualizer = useVirtualizer({
-    count: lines.length,
+    count: totalLines,
     getScrollElement: () => rightContainerRef.current,
     estimateSize: () => 20, // 20px line height per DESIGN.md
     overscan: 25,
   });
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  useEffect(() => {
+    if (virtualItems.length > 0) {
+      const start = virtualItems[0].index;
+      const end = virtualItems[virtualItems.length - 1].index;
+      requestRange(start, end);
+    }
+  }, [virtualItems, requestRange]);
 
   // Track parent viewport height with ResizeObserver
   useEffect(() => {
     const el = parentContainerRef.current;
     if (!el) return;
 
-    setViewportHeight(el.clientHeight);
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setViewportHeight(entry.contentRect.height);
-      }
-    });
+    setViewportHeight(el.clientHeight || 600);
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          setViewportHeight(entry.contentRect.height);
+        }
+      });
 
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [lines.length]);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+  }, [totalLines]);
 
   // Synchronized scroll applicator with zero ping-pong
   const applyScrollTop = useCallback((newTop: number) => {
@@ -105,7 +118,7 @@ export const SplitDiffViewer: React.FC = () => {
     updateWidth();
     const timer = setTimeout(updateWidth, 50);
     return () => clearTimeout(timer);
-  }, [lines, diffResult]);
+  }, [totalLines, diffResult]);
 
   const handleLeftHorizontalScroll = useCallback(() => {
     if (isSyncingHorizontal.current) return;
@@ -137,7 +150,7 @@ export const SplitDiffViewer: React.FC = () => {
     }
   }, []);
 
-  // Non-passive wheel listener on parent to lock vertical scrolling across all panes
+  // Listen to wheel events on outer container to smoothly update shared scrollTop
   useEffect(() => {
     const el = parentContainerRef.current;
     if (!el) return;
@@ -176,14 +189,12 @@ export const SplitDiffViewer: React.FC = () => {
     if (diffResult && diffResult.chunks.length > 0) {
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (activeChunk) {
-        const lineIdx = lines.findIndex((l) => l.chunk_id === activeChunk.chunk_id);
-        if (lineIdx !== -1) {
-          const targetOffset = Math.max(0, lineIdx * 20 - 100);
-          applyScrollTop(targetOffset);
-        }
+        const targetLine = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
+        const targetOffset = Math.max(0, targetLine * 20 - 100);
+        applyScrollTop(targetOffset);
       }
     }
-  }, [activeChunkIndex, diffResult, applyScrollTop, lines]);
+  }, [activeChunkIndex, diffResult, applyScrollTop]);
 
   useEffect(() => {
     if (editingLine && inputRef.current) {
@@ -193,10 +204,10 @@ export const SplitDiffViewer: React.FC = () => {
   }, [editingLine]);
 
   const handleStartEdit = (side: 'left' | 'right', virtualIndex: number) => {
-    const line = lines[virtualIndex];
+    const line = getLine(virtualIndex);
     if (!line) return;
 
-    const target = getTargetLineNum(lines, virtualIndex, side);
+    const target = getTargetLineNum(getLine, virtualIndex, side);
     const initialText =
       target.isInsert
         ? ''
@@ -239,10 +250,10 @@ export const SplitDiffViewer: React.FC = () => {
 
     const step = forward ? 1 : -1;
     let nextIdx = currentIdx + step;
-    while (nextIdx >= 0 && nextIdx < lines.length) {
-      const nextLine = lines[nextIdx];
+    while (nextIdx >= 0 && nextIdx < totalLines) {
+      const nextLine = getLine(nextIdx);
       const hasText =
-        currentSide === 'left' ? nextLine.left_text !== null : nextLine.right_text !== null;
+        currentSide === 'left' ? nextLine?.left_text !== null : nextLine?.right_text !== null;
       if (hasText) {
         handleStartEdit(currentSide, nextIdx);
         return;
@@ -300,7 +311,7 @@ export const SplitDiffViewer: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col bg-neutral-950 select-none relative font-mono text-[13px] overflow-hidden">
-      {diffResult?.is_identical && lines.length > 0 && (
+      {diffResult?.is_identical && totalLines > 0 && (
         <div className="bg-emerald-500/10 border-b border-emerald-500/30 px-3 py-1 flex items-center justify-center space-x-2 text-emerald-400 text-xs shrink-0 font-sans">
           <CheckCircle2 className="w-3.5 h-3.5" />
           <span>Files are identical — no differences found.</span>
@@ -328,31 +339,48 @@ export const SplitDiffViewer: React.FC = () => {
               <button
                 type="button"
                 onClick={() => useTabStore.getState().updateActiveTab({ type: 'welcome' })}
-                className="rounded border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-700 transition-colors cursor-pointer"
+                className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 transition-colors"
               >
-                Choose Other Files
+                Return to Welcome
               </button>
               <button
                 type="button"
                 onClick={() => useTabStore.getState().recomputeActiveDiff()}
-                className="flex items-center gap-1.5 rounded bg-emerald-500 px-3 py-1.5 text-xs font-medium text-black hover:bg-emerald-400 transition-colors cursor-pointer"
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 transition-colors"
               >
-                <RefreshCw size={13} />
-                <span>Retry</span>
+                Retry
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {!activeTab?.diffError && lines.length === 0 && (
-        <div className="flex-1 flex items-center justify-center text-neutral-500 text-xs font-sans">
-          <span>{activeTab?.isComputing ? 'Computing diff...' : diffResult ? 'Both files are empty.' : 'No content to compare.'}</span>
+      {/* Pane Titles Header */}
+      <div className="bg-neutral-900 px-3 py-1 text-[11px] text-neutral-400 border-b border-neutral-800 flex justify-between select-none shrink-0 font-sans">
+        <div className="flex-1 flex items-center justify-between pr-4">
+          <span className="truncate font-medium text-neutral-300">
+            {activeTab?.leftPath ? activeTab.leftPath.split(/[/\\]/).pop() : 'Original (Left)'}
+          </span>
+          <span className="text-neutral-500 text-[10px]">
+            {activeTab?.leftEncoding ? `[${activeTab.leftEncoding}]` : ''}
+          </span>
         </div>
-      )}
+        <div className="w-10 border-r border-neutral-800 shrink-0" />
+        <div className="flex-1 flex items-center justify-between pl-4">
+          <span className="truncate font-medium text-neutral-300">
+            {activeTab?.rightPath ? activeTab.rightPath.split(/[/\\]/).pop() : 'Modified (Right)'}
+          </span>
+          <span className="text-neutral-500 text-[10px]">
+            {activeTab?.rightEncoding ? `[${activeTab.rightEncoding}]` : ''}
+          </span>
+        </div>
+        {/* Placeholder spacer matching MasterVerticalScrollbar */}
+        <div className="w-3.5 shrink-0" />
+      </div>
 
-      {lines.length > 0 && (
-        <div ref={parentContainerRef} className="flex-1 flex overflow-hidden relative">
+      {/* Main Diff Area */}
+      <div ref={parentContainerRef} className="flex-1 flex overflow-hidden relative">
+        <div className="flex-1 flex overflow-hidden">
           {/* === LEFT PANE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
           <div
             ref={leftContainerRef}
@@ -368,8 +396,27 @@ export const SplitDiffViewer: React.FC = () => {
               }}
             >
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const line = lines[virtualRow.index];
-                if (!line) return null;
+                const line = getLine(virtualRow.index);
+
+                if (!line) {
+                  return (
+                    <div
+                      key={virtualRow.index}
+                      className="absolute top-0 left-0 min-w-full w-max flex items-stretch border-b border-neutral-900/40 bg-neutral-950 text-neutral-600"
+                      style={{
+                        height: `${virtualRow.size}px`,
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                    >
+                      <div className="sticky left-0 z-10 w-12 bg-neutral-900/60 text-neutral-600 text-right pr-2 select-none text-[11px] shrink-0 border-r border-neutral-800 leading-5">
+                        {virtualRow.index + 1}
+                      </div>
+                      <div className="flex-1 px-2 whitespace-pre leading-5 min-w-0 flex items-center">
+                        <span className="inline-block w-28 h-2.5 bg-neutral-900 rounded-xs animate-pulse opacity-40" />
+                      </div>
+                    </div>
+                  );
+                }
 
                 const isActiveChunk =
                   line.chunk_id !== null &&
@@ -459,13 +506,24 @@ export const SplitDiffViewer: React.FC = () => {
               }}
             >
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const line = lines[virtualRow.index];
-                if (!line) return null;
+                const line = getLine(virtualRow.index);
+                if (!line) {
+                  return (
+                    <div
+                      key={virtualRow.index}
+                      className="absolute top-0 left-0 w-10 flex items-center justify-center border-b border-neutral-900/40 text-neutral-700 text-[10px]"
+                      style={{
+                        height: `${virtualRow.size}px`,
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                    />
+                  );
+                }
 
+                const prevLine = virtualRow.index > 0 ? getLine(virtualRow.index - 1) : null;
                 const isChunkStart =
                   line.chunk_id !== null &&
-                  (virtualRow.index === 0 ||
-                    lines[virtualRow.index - 1].chunk_id !== line.chunk_id);
+                  (virtualRow.index === 0 || prevLine?.chunk_id !== line.chunk_id);
 
                 return (
                   <div
@@ -515,8 +573,27 @@ export const SplitDiffViewer: React.FC = () => {
               }}
             >
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const line = lines[virtualRow.index];
-                if (!line) return null;
+                const line = getLine(virtualRow.index);
+
+                if (!line) {
+                  return (
+                    <div
+                      key={virtualRow.index}
+                      className="absolute top-0 left-0 min-w-full w-max flex items-stretch border-b border-neutral-900/40 bg-neutral-950 text-neutral-600"
+                      style={{
+                        height: `${virtualRow.size}px`,
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                    >
+                      <div className="sticky left-0 z-10 w-12 bg-neutral-900/60 text-neutral-600 text-right pr-2 select-none text-[11px] shrink-0 border-r border-neutral-800 leading-5">
+                        {virtualRow.index + 1}
+                      </div>
+                      <div className="flex-1 px-2 whitespace-pre leading-5 min-w-0 flex items-center">
+                        <span className="inline-block w-28 h-2.5 bg-neutral-900 rounded-xs animate-pulse opacity-40" />
+                      </div>
+                    </div>
+                  );
+                }
 
                 const isActiveChunk =
                   line.chunk_id !== null &&
@@ -593,16 +670,16 @@ export const SplitDiffViewer: React.FC = () => {
               })}
             </div>
           </div>
-
-          {/* === MASTER VERTICAL SCROLLBAR (12PX, ALWAYS VISIBLE, HIGH CONTRAST) === */}
-          <MasterVerticalScrollbar
-            scrollTop={scrollTop}
-            totalHeight={rowVirtualizer.getTotalSize()}
-            viewportHeight={viewportHeight}
-            onScrollChange={applyScrollTop}
-          />
         </div>
-      )}
+
+        {/* Unified Vertical Master Scrollbar (Zero layout shift, 1:1 hardware scroll) */}
+        <MasterVerticalScrollbar
+          scrollTop={scrollTop}
+          totalHeight={rowVirtualizer.getTotalSize()}
+          viewportHeight={viewportHeight}
+          onScrollChange={applyScrollTop}
+        />
+      </div>
     </div>
   );
 };

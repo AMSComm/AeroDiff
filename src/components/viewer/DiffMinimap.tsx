@@ -50,7 +50,7 @@ export const DiffMinimap: React.FC = () => {
     return <div className="w-3 bg-neutral-950 border-l border-neutral-900 shrink-0" />;
   }
 
-  const totalLines = lines.length;
+  const totalLines = diffResult?.total_virtual_lines || lines?.length || 1;
 
   const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -62,13 +62,11 @@ export const DiffMinimap: React.FC = () => {
 
     for (let idx = 0; idx < chunks.length; idx++) {
       const chunk = chunks[idx];
-      const lineIdx = chunkLineMap.get(chunk.chunk_id);
-      if (lineIdx !== undefined) {
-        const dist = Math.abs(lineIdx - targetLine);
-        if (dist < minDistance) {
-          minDistance = dist;
-          closestChunkIdx = idx;
-        }
+      const lineIdx = chunkLineMap.get(chunk.chunk_id) ?? Math.max(0, (chunk.left_start || chunk.right_start) - 1);
+      const dist = Math.abs(lineIdx - targetLine);
+      if (dist < minDistance) {
+        minDistance = dist;
+        closestChunkIdx = idx;
       }
     }
 
@@ -82,8 +80,7 @@ export const DiffMinimap: React.FC = () => {
       className="w-3.5 bg-neutral-950 border-l border-neutral-900 shrink-0 relative select-none cursor-pointer"
     >
       {visibleMarkers.map(({ chunk, originalIndex }) => {
-        const lineIdx = chunkLineMap.get(chunk.chunk_id);
-        if (lineIdx === undefined) return null;
+        const lineIdx = chunkLineMap.get(chunk.chunk_id) ?? Math.max(0, (chunk.left_start || chunk.right_start) - 1);
 
         const topPercent = (lineIdx / totalLines) * 100;
         const heightPercent = Math.max(1, ((chunk.left_count + chunk.right_count) / totalLines) * 100);

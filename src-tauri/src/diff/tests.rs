@@ -244,4 +244,58 @@ mod tests {
             assert!(line.chunk_id.is_none());
         }
     }
+
+    #[test]
+    fn test_streaming_diff_session() {
+        use super::super::engine::compute_diff_session_from_sources;
+        use super::super::session::{get_diff_session_manager, SourceBuffer};
+        use std::sync::Arc;
+
+        let left = "common_head\nalpha\nmod1\ncommon_tail";
+        let right = "common_head\nmod2\ngamma\ncommon_tail";
+        let options = DiffOptions::default();
+
+        let left_src = SourceBuffer::Memory(Arc::new(left.as_bytes().to_vec()));
+        let right_src = SourceBuffer::Memory(Arc::new(right.as_bytes().to_vec()));
+
+        let res = compute_diff_session_from_sources(left_src, right_src, &options);
+        assert!(!res.is_identical);
+        assert!(res.session_id.is_some());
+        assert_eq!(res.total_left_lines, 4);
+        assert_eq!(res.total_right_lines, 4);
+
+        let sid = res.session_id.unwrap();
+        let slice = get_diff_session_manager().get_slice(&sid, 0, 10).unwrap();
+        assert!(!slice.is_empty());
+
+        // First line is common_head Unchanged
+        assert_eq!(slice[0].line_type, DiffLineType::Unchanged);
+        assert_eq!(slice[0].left_text.as_deref(), Some("common_head"));
+        assert_eq!(slice[0].right_text.as_deref(), Some("common_head"));
+
+        // Last line is common_tail Unchanged
+        let last = slice.last().unwrap();
+        assert_eq!(last.line_type, DiffLineType::Unchanged);
+        assert_eq!(last.left_text.as_deref(), Some("common_tail"));
+    }
+
+    #[test]
+    fn test_compare_real_heavy_files() {
+        use crate::commands::compare_files;
+        let p1 = "/Users/huy/Downloads/journal_detail_monthly_20260901.csv";
+        let p2 = "/Users/huy/Downloads/journal_detail_monthly_20260925.csv";
+        if !std::path::Path::new(p1).exists() || !std::path::Path::new(p2).exists() {
+            return;
+        }
+
+        let start = std::time::Instant::now();
+        let res = compare_files(p1.to_string(), p2.to_string(), DiffOptions::default(), None, None).unwrap();
+        let elapsed = start.elapsed();
+        println!("🚀 Heavy files compared in {:?}", elapsed);
+        println!("Total virtual lines: {}", res.total_virtual_lines);
+        println!("Session ID: {:?}", res.session_id);
+        println!("Chunks: {}", res.chunks.len());
+        assert!(!res.is_identical);
+        assert!(res.total_virtual_lines > 2_000_000);
+    }
 }

@@ -31,9 +31,10 @@ function waitForServer(url, timeout = 15000) {
 
 async function run() {
   console.log('🚀 Starting Vite preview server for Playwright verification...');
-  const server = spawn('pnpm', ['preview', '--port', '4173'], {
+  const server = spawn('npm', ['run', 'preview', '--', '--port', '4173'], {
     cwd: '/Users/huy/dev/amktest/aerodiff',
     stdio: 'pipe',
+    shell: true,
   });
 
   server.stdout.on('data', (d) => process.stdout.write(`[Vite] ${d}`));

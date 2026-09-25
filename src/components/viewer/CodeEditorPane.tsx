@@ -1,4 +1,4 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 
 interface CodeEditorPaneProps {
   title: string;
@@ -7,6 +7,8 @@ interface CodeEditorPaneProps {
   placeholder?: string;
   isDirty?: boolean;
 }
+
+const LINE_HEIGHT = 20;
 
 export const CodeEditorPane: React.FC<CodeEditorPaneProps> = ({
   title,
@@ -18,12 +20,40 @@ export const CodeEditorPane: React.FC<CodeEditorPaneProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
 
-  const lines = useMemo(() => content.split('\n'), [content]);
-  const lineCount = lines.length;
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(600);
+
+  // Fast newline counting without massive array allocation
+  const lineCount = useMemo(() => {
+    if (!content) return 1;
+    let count = 1;
+    for (let i = 0; i < content.length; i++) {
+      if (content.charCodeAt(i) === 10) count++;
+    }
+    return count;
+  }, [content]);
+
+  // Track viewport height with ResizeObserver
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    setViewportHeight(el.clientHeight || 600);
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          setViewportHeight(entry.contentRect.height);
+        }
+      });
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+  }, []);
 
   const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    const top = e.currentTarget.scrollTop;
+    setScrollTop(top);
     if (gutterRef.current) {
-      gutterRef.current.scrollTop = e.currentTarget.scrollTop;
+      gutterRef.current.scrollTop = top;
     }
   };
 
@@ -32,6 +62,15 @@ export const CodeEditorPane: React.FC<CodeEditorPaneProps> = ({
       textareaRef.current.scrollTop += e.deltaY;
     }
   };
+
+  // Virtualized line number window: render only visible rows + padding buffer
+  const startIdx = Math.max(0, Math.floor(scrollTop / LINE_HEIGHT) - 5);
+  const endIdx = Math.min(lineCount, Math.ceil((scrollTop + viewportHeight) / LINE_HEIGHT) + 5);
+
+  const visibleLineNumbers: number[] = [];
+  for (let i = startIdx; i < endIdx; i++) {
+    visibleLineNumbers.push(i + 1);
+  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-neutral-950 font-mono text-[13px]">
@@ -48,17 +87,25 @@ export const CodeEditorPane: React.FC<CodeEditorPaneProps> = ({
 
       {/* Editor Body with Gutter & Textarea */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Line Numbers Gutter */}
+        {/* Virtualized Line Numbers Gutter */}
         <div
           ref={gutterRef}
           onWheel={handleGutterWheel}
           className="w-12 bg-neutral-900/90 text-neutral-500 text-right pr-2.5 select-none text-[11px] leading-5 shrink-0 border-r border-neutral-800 font-mono py-2.5 overflow-hidden shadow-[1px_0_0_#27272a]"
         >
-          {Array.from({ length: lineCount }, (_, i) => (
-            <div key={i} className="h-5 leading-5 truncate">
-              {i + 1}
-            </div>
-          ))}
+          <div
+            style={{
+              height: lineCount * LINE_HEIGHT,
+              paddingTop: startIdx * LINE_HEIGHT,
+              boxSizing: 'border-box',
+            }}
+          >
+            {visibleLineNumbers.map((num) => (
+              <div key={num} className="h-5 leading-5 truncate">
+                {num}
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Textarea */}
