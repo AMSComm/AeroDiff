@@ -38,4 +38,5 @@ export interface TabSession {
   csvViewMode?: 'table' | 'text';
   leftEncoding?: string;
   rightEncoding?: string;
+  diffError?: string | null;
 }

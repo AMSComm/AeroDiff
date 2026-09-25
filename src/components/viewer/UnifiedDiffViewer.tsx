@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
 import { DiffLine, InlineSpan } from '../../types/diff';
 import { MasterVerticalScrollbar } from './MasterVerticalScrollbar';
@@ -182,9 +182,47 @@ export const UnifiedDiffViewer: React.FC = () => {
           </div>
         )}
 
-        {lines.length === 0 && (
+        {activeTab?.diffError && (
+          <div className="h-full flex flex-col items-center justify-center p-6 bg-neutral-950 text-neutral-200 select-none">
+            <div className="max-w-md w-full rounded-xl border border-rose-500/30 bg-[#121215] p-6 shadow-2xl">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <AlertTriangle size={22} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-neutral-100">Unable to Compare Files</h3>
+                  <p className="text-xs text-neutral-400">
+                    AeroDiff encountered an issue processing these files.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 rounded-md border border-neutral-800 bg-[#09090b] p-3 text-xs font-mono text-rose-300 break-words max-h-32 overflow-y-auto">
+                {activeTab.diffError}
+              </div>
+              <div className="mt-5 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => useTabStore.getState().updateActiveTab({ type: 'welcome' })}
+                  className="rounded border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-700 transition-colors cursor-pointer"
+                >
+                  Choose Other Files
+                </button>
+                <button
+                  type="button"
+                  onClick={() => useTabStore.getState().recomputeActiveDiff()}
+                  className="flex items-center gap-1.5 rounded bg-emerald-500 px-3 py-1.5 text-xs font-medium text-black hover:bg-emerald-400 transition-colors cursor-pointer"
+                >
+                  <RefreshCw size={13} />
+                  <span>Retry</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!activeTab?.diffError && lines.length === 0 && (
           <div className="h-full flex items-center justify-center text-neutral-500 text-xs font-sans">
-            <span>{diffResult ? 'Both files are empty.' : 'Loading diff...'}</span>
+            <span>{activeTab?.isComputing ? 'Computing diff...' : diffResult ? 'Both files are empty.' : 'No content to compare.'}</span>
           </div>
         )}
 

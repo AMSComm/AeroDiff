@@ -270,6 +270,7 @@ export interface PathInfo {
   is_dir: boolean;
   is_file: boolean;
   name: string;
+  size?: number;
 }
 
 export async function invokeCheckPath(path: string): Promise<PathInfo> {

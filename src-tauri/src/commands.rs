@@ -17,8 +17,18 @@ pub struct MergeResponse {
     pub updated_diff: DiffResult,
 }
 
+pub const MAX_FILE_SIZE: u64 = 30 * 1024 * 1024; // 30 MB
+
+pub fn is_binary_content(bytes: &[u8]) -> bool {
+    let check_len = bytes.len().min(8192);
+    bytes[..check_len].iter().any(|&b| b == 0)
+}
+
 #[tauri::command]
 pub async fn compare_text(left: String, right: String, options: DiffOptions) -> Result<DiffResult, String> {
+    if left.len() > MAX_FILE_SIZE as usize || right.len() > MAX_FILE_SIZE as usize {
+        return Err("Content exceeds 30 MB maximum size for real-time visual diffing.".to_string());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         Ok(compute_diff(&left, &right, &options))
     })
@@ -96,8 +106,41 @@ pub fn compare_files(
         return Err(format!("Right file does not exist: {}", clean_r));
     }
 
+    let meta_l = fs::metadata(p_left).map_err(|e| format!("Failed to read metadata for left file '{}': {}", clean_l, e))?;
+    if meta_l.len() > MAX_FILE_SIZE {
+        let size_mb = meta_l.len() as f64 / (1024.0 * 1024.0);
+        return Err(format!(
+            "Left file '{}' is too large ({:.1} MB). AeroDiff supports text files up to 30 MB for real-time visual diffing.",
+            p_left.file_name().and_then(|n| n.to_str()).unwrap_or(clean_l),
+            size_mb
+        ));
+    }
+
+    let meta_r = fs::metadata(p_right).map_err(|e| format!("Failed to read metadata for right file '{}': {}", clean_r, e))?;
+    if meta_r.len() > MAX_FILE_SIZE {
+        let size_mb = meta_r.len() as f64 / (1024.0 * 1024.0);
+        return Err(format!(
+            "Right file '{}' is too large ({:.1} MB). AeroDiff supports text files up to 30 MB for real-time visual diffing.",
+            p_right.file_name().and_then(|n| n.to_str()).unwrap_or(clean_r),
+            size_mb
+        ));
+    }
+
     let bytes_l = fs::read(p_left).map_err(|e| format!("Failed to read left file: {}", e))?;
+    if is_binary_content(&bytes_l) {
+        return Err(format!(
+            "Left file '{}' appears to be a binary file. AeroDiff supports text and CSV files.",
+            p_left.file_name().and_then(|n| n.to_str()).unwrap_or(clean_l)
+        ));
+    }
+
     let bytes_r = fs::read(p_right).map_err(|e| format!("Failed to read right file: {}", e))?;
+    if is_binary_content(&bytes_r) {
+        return Err(format!(
+            "Right file '{}' appears to be a binary file. AeroDiff supports text and CSV files.",
+            p_right.file_name().and_then(|n| n.to_str()).unwrap_or(clean_r)
+        ));
+    }
 
     if bytes_l == bytes_r && options == DiffOptions::default() && left_encoding == right_encoding {
         let (left, _) = decode_bytes_with_encoding(&bytes_l, left_encoding.as_deref());
@@ -158,15 +201,18 @@ pub struct PathInfo {
     pub is_dir: bool,
     pub is_file: bool,
     pub name: String,
+    pub size: u64,
 }
 
 #[tauri::command]
 pub fn check_path(path: String) -> Result<PathInfo, String> {
     let clean = path.trim().trim_matches('"').trim_matches('\'');
     let p = Path::new(clean);
-    let exists = p.exists();
-    let is_dir = p.is_dir();
-    let is_file = p.is_file();
+    let (exists, is_dir, is_file, size) = if let Ok(meta) = p.metadata() {
+        (true, meta.is_dir(), meta.is_file(), meta.len())
+    } else {
+        (p.exists(), p.is_dir(), p.is_file(), 0)
+    };
     let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
     Ok(PathInfo {
         path: clean.to_string(),
@@ -174,13 +220,35 @@ pub fn check_path(path: String) -> Result<PathInfo, String> {
         is_dir,
         is_file,
         name,
+        size,
     })
 }
 
 #[tauri::command]
 pub fn read_file(path: String, encoding: Option<String>) -> Result<FileContentResult, String> {
     let clean = path.trim().trim_matches('"').trim_matches('\'');
+    let p = Path::new(clean);
+    if !p.exists() {
+        return Err(format!("File does not exist: {}", clean));
+    }
+    let metadata = fs::metadata(p).map_err(|e| format!("Failed to read metadata for '{}': {}", clean, e))?;
+    if metadata.len() > MAX_FILE_SIZE {
+        let size_mb = metadata.len() as f64 / (1024.0 * 1024.0);
+        return Err(format!(
+            "File '{}' is too large ({:.1} MB). AeroDiff supports text files up to 30 MB for real-time visual diffing.",
+            p.file_name().and_then(|n| n.to_str()).unwrap_or(clean),
+            size_mb
+        ));
+    }
+
     let bytes = fs::read(clean).map_err(|e| format!("Failed to read file '{}': {}", clean, e))?;
+    if is_binary_content(&bytes) {
+        return Err(format!(
+            "'{}' appears to be a binary file. AeroDiff supports text and CSV files.",
+            p.file_name().and_then(|n| n.to_str()).unwrap_or(clean)
+        ));
+    }
+
     let (content, enc_name) = decode_bytes_with_encoding(&bytes, encoding.as_deref());
     Ok(FileContentResult {
         content,
@@ -253,5 +321,15 @@ mod tests {
         assert_eq!(decoded, "こんにちは世界 (EUC-JP)");
         assert_eq!(enc, "EUC-JP");
     }
+
+    #[test]
+    fn test_is_binary_content() {
+        let text_bytes = b"Hello, world! This is plain text diff.";
+        assert!(!is_binary_content(text_bytes));
+
+        let binary_bytes = [0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x77, 0x6f];
+        assert!(is_binary_content(&binary_bytes));
+    }
 }
+
 

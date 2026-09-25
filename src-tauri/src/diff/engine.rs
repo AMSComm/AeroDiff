@@ -71,8 +71,15 @@ pub fn compute_diff(left: &str, right: &str, options: &DiffOptions) -> DiffResul
     let norm_left_refs: Vec<&str> = norm_left.iter().map(|s| s.as_str()).collect();
     let norm_right_refs: Vec<&str> = norm_right.iter().map(|s| s.as_str()).collect();
 
+    let max_lines = norm_left_refs.len().max(norm_right_refs.len());
+    let algorithm = if max_lines > 5_000 {
+        Algorithm::Patience
+    } else {
+        Algorithm::Myers
+    };
+
     let diff = TextDiff::configure()
-        .algorithm(Algorithm::Myers)
+        .algorithm(algorithm)
         .diff_slices(&norm_left_refs, &norm_right_refs);
 
     let mut result_lines = Vec::new();

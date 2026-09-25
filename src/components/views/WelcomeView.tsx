@@ -85,6 +85,7 @@ export const WelcomeView: React.FC = () => {
           fileContentCache.set(cleaned, res.content);
         } catch (readErr: any) {
           console.warn(`Could not pre-read ${side} file:`, readErr);
+          setErrorMessage(readErr?.message || String(readErr));
         }
       } else {
         if (side === 'left') setLeftContent(undefined);

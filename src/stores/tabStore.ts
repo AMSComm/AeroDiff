@@ -118,6 +118,7 @@ const createDefaultSession = (type: TabType = 'welcome', initial?: Partial<TabSe
     isDirtyRight: false,
     isComputing: false,
     computeTimeMs: 0,
+    diffError: null,
     ...initial,
   };
 };
@@ -165,14 +166,16 @@ export const useTabStore = create<TabState>((set, get) => ({
     let rContent = rightContent ?? '';
     let lEncoding = 'UTF-8';
     let rEncoding = 'UTF-8';
+    let readError: string | null = null;
 
     if (!leftContent && leftPath) {
       try {
         const res = await readFileContent(leftPath);
         lContent = res.content;
         lEncoding = res.encoding;
-      } catch (e) {
+      } catch (e: any) {
         console.error('Failed to read left file:', e);
+        readError = `Failed to read left file: ${e?.message || e}`;
       }
     }
 
@@ -181,8 +184,11 @@ export const useTabStore = create<TabState>((set, get) => ({
         const res = await readFileContent(rightPath);
         rContent = res.content;
         rEncoding = res.encoding;
-      } catch (e) {
+      } catch (e: any) {
         console.error('Failed to read right file:', e);
+        readError = readError
+          ? `${readError} | Failed to read right file: ${e?.message || e}`
+          : `Failed to read right file: ${e?.message || e}`;
       }
     }
 
@@ -198,6 +204,7 @@ export const useTabStore = create<TabState>((set, get) => ({
       rightContent: rContent,
       leftEncoding: lEncoding,
       rightEncoding: rEncoding,
+      diffError: readError,
     });
 
     set((state) => ({
@@ -205,8 +212,10 @@ export const useTabStore = create<TabState>((set, get) => ({
       activeTabId: newTab.id,
     }));
 
-    // Compute initial diff
-    get().recomputeActiveDiff();
+    // Compute initial diff if no immediate read error
+    if (!readError) {
+      get().recomputeActiveDiff();
+    }
     return newTab.id;
   },
 
@@ -220,6 +229,7 @@ export const useTabStore = create<TabState>((set, get) => ({
       leftPath,
       rightPath,
       isComputing: true,
+      diffError: null,
     });
 
     set((state) => ({
@@ -229,10 +239,10 @@ export const useTabStore = create<TabState>((set, get) => ({
 
     try {
       const res = await invokeCompareFolders(leftPath, rightPath, true);
-      get().updateActiveTab({ folderResult: res, isComputing: false });
-    } catch (e) {
+      get().updateActiveTab({ folderResult: res, isComputing: false, diffError: null });
+    } catch (e: any) {
       console.error('Failed to scan folders:', e);
-      get().updateActiveTab({ isComputing: false });
+      get().updateActiveTab({ isComputing: false, diffError: e?.message || String(e) });
     }
 
     return newTab.id;
@@ -243,6 +253,7 @@ export const useTabStore = create<TabState>((set, get) => ({
     let rContent = '';
     let lEncoding = 'UTF-8';
     let rEncoding = 'UTF-8';
+    let readError: string | null = null;
     try {
       const resL = await readFileContent(leftPath);
       lContent = resL.content;
@@ -250,8 +261,9 @@ export const useTabStore = create<TabState>((set, get) => ({
       const resR = await readFileContent(rightPath);
       rContent = resR.content;
       rEncoding = resR.encoding;
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to read CSV:', e);
+      readError = e?.message || String(e);
     }
 
     const leftFileName = leftPath.split('/').pop() || 'Left';
@@ -266,7 +278,8 @@ export const useTabStore = create<TabState>((set, get) => ({
       rightContent: rContent,
       leftEncoding: lEncoding,
       rightEncoding: rEncoding,
-      isComputing: true,
+      isComputing: !readError,
+      diffError: readError,
     });
 
     set((state) => ({
@@ -274,12 +287,14 @@ export const useTabStore = create<TabState>((set, get) => ({
       activeTabId: newTab.id,
     }));
 
-    try {
-      const res = await invokeCompareCsv(lContent, rContent, undefined, newTab.options);
-      get().updateActiveTab({ csvResult: res, isComputing: false });
-    } catch (e) {
-      console.error('Failed to compare CSV:', e);
-      get().updateActiveTab({ isComputing: false });
+    if (!readError) {
+      try {
+        const res = await invokeCompareCsv(lContent, rContent, undefined, newTab.options);
+        get().updateActiveTab({ csvResult: res, isComputing: false, diffError: null });
+      } catch (e: any) {
+        console.error('Failed to compare CSV:', e);
+        get().updateActiveTab({ isComputing: false, diffError: e?.message || String(e) });
+      }
     }
 
     return newTab.id;
@@ -324,15 +339,17 @@ export const useTabStore = create<TabState>((set, get) => ({
         rightPath: cRight,
         folderResult: null,
         isComputing: true,
+        diffError: null,
       });
 
       try {
         const res = await invokeCompareFolders(cLeft, cRight, true);
-        get().updateActiveTab({ folderResult: res, isComputing: false });
+        get().updateActiveTab({ folderResult: res, isComputing: false, diffError: null });
       } catch (e: any) {
         console.error('Failed to compare folders:', e);
-        get().updateActiveTab({ isComputing: false });
-        throw new Error(`Failed to compare folders: ${e?.message || e}`);
+        const errMsg = e?.message || String(e);
+        get().updateActiveTab({ isComputing: false, diffError: errMsg });
+        throw new Error(errMsg);
       }
       return;
     }
@@ -350,7 +367,9 @@ export const useTabStore = create<TabState>((set, get) => ({
         lEncoding = res.encoding;
       } catch (e: any) {
         console.error('Failed to read left file:', e);
-        throw new Error(`Failed to read left file '${cLeft}': ${e?.message || e}`);
+        const errMsg = e?.message || String(e);
+        get().updateActiveTab({ diffError: errMsg, isComputing: false });
+        throw new Error(errMsg);
       }
     }
 
@@ -361,7 +380,9 @@ export const useTabStore = create<TabState>((set, get) => ({
         rEncoding = res.encoding;
       } catch (e: any) {
         console.error('Failed to read right file:', e);
-        throw new Error(`Failed to read right file '${cRight}': ${e?.message || e}`);
+        const errMsg = e?.message || String(e);
+        get().updateActiveTab({ diffError: errMsg, isComputing: false });
+        throw new Error(errMsg);
       }
     }
 
@@ -382,6 +403,7 @@ export const useTabStore = create<TabState>((set, get) => ({
       rightEncoding: rEncoding,
       csvViewMode: targetType === 'csv' ? 'table' : undefined,
       isComputing: true,
+      diffError: null,
     });
 
     if (targetType === 'csv') {
@@ -394,11 +416,13 @@ export const useTabStore = create<TabState>((set, get) => ({
           csvResult: csvRes,
           diffResult: diffRes,
           isComputing: false,
+          diffError: null,
         });
       } catch (e: any) {
         console.error('Failed to compare CSV:', e);
-        get().updateActiveTab({ isComputing: false });
-        throw new Error(`Failed to compare CSV: ${e?.message || e}`);
+        const errMsg = e?.message || String(e);
+        get().updateActiveTab({ isComputing: false, diffError: errMsg });
+        throw new Error(errMsg);
       }
     } else {
       await get().recomputeActiveDiff();
@@ -575,10 +599,12 @@ export const useTabStore = create<TabState>((set, get) => ({
         isComputing: false,
         computeTimeMs: duration,
         activeChunkIndex: 0,
+        diffError: null,
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to compute diff:', err);
-      get().updateActiveTab({ isComputing: false });
+      const errMsg = err?.message || String(err);
+      get().updateActiveTab({ isComputing: false, diffError: errMsg });
     }
   },
 

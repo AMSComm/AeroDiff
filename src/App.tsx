@@ -5,6 +5,7 @@ import { WelcomeView } from './components/views/WelcomeView';
 import { FolderCompareView } from './components/views/FolderCompareView';
 import { FileCompareView } from './components/views/FileCompareView';
 import { StatusBar } from './components/layout/StatusBar';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 export const App: React.FC = () => {
   const {
@@ -78,9 +79,14 @@ export const App: React.FC = () => {
 
       {/* Main Active Tab Content */}
       <main className="flex-1 flex overflow-hidden relative">
-        {(!activeTab || activeTab.type === 'welcome') && <WelcomeView />}
-        {activeTab?.type === 'folder' && <FolderCompareView />}
-        {(activeTab?.type === 'file' || activeTab?.type === 'csv') && <FileCompareView />}
+        <ErrorBoundary
+          key={activeTab?.id || 'default'}
+          fallbackTitle="Active view encountered an issue"
+        >
+          {(!activeTab || activeTab.type === 'welcome') && <WelcomeView />}
+          {activeTab?.type === 'folder' && <FolderCompareView />}
+          {(activeTab?.type === 'file' || activeTab?.type === 'csv') && <FileCompareView />}
+        </ErrorBoundary>
       </main>
 
       {/* Bottom Status Bar */}
