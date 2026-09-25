@@ -1,6 +1,6 @@
 [package]
 name = "aerodiff"
-version = "0.1.1"
+version = "0.1.2"
 description = "AeroDiff - Ultra-fast, lightweight cross-platform diff & merge tool"
 authors = ["AM Software <contact@amsoftware.com.vn>"]
 license = "MIT"

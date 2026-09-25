@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.1.2] - 2026-09-25
+
+### ⚡ Heavy File & Scalable Diff Architecture
+- **Memory-Mapped Streaming Engine**: Implemented `memmap2` with multi-threaded byte slicing (`memchr`, `rayon`) and Patience LIS anchoring for huge files. Computes full diffs on 400MB+ files (2.4M+ lines each) in ~3.8 seconds.
+- **Windowed Diff Sessions**: Introduced backend session-based diff caching with on-demand chunk streaming via `get_diff_slice(session_id, offset, limit)` to prevent IPC string transfer bloat and Out-Of-Memory crashes.
+- **Virtual DOM Viewport**: Enhanced `SplitDiffViewer`, `UnifiedDiffViewer`, and `CsvCompareView` with TanStack Virtual pagination hooks (`useDiffSessionLines`) and skeleton loading placeholders.
+- **Resilient Line Number Gutter**: Refactored the text editor line gutter to virtualized DOM rendering, completely eliminating browser freezes and white-screen DOM crashes on massive text pastes.
+- **Global Error Boundary**: Added comprehensive application-level ErrorBoundary with graceful recovery to safeguard against unexpected renderer failures.
+
+---
+
 ## [v0.1.1] - 2026-09-23
 
 ### ⚙️ Architecture & Standardization
