@@ -25,7 +25,7 @@ export const UnifiedDiffViewer: React.FC = () => {
   } | null>(null);
   const [editValue, setEditValue] = useState('');
 
-  const { totalLines, getLine, requestRange } = useDiffSessionLines(diffResult);
+  const { totalLines, getLine, lineMap, requestRange } = useDiffSessionLines(diffResult);
 
   const rowVirtualizer = useVirtualizer({
     count: totalLines,
@@ -90,16 +90,58 @@ export const UnifiedDiffViewer: React.FC = () => {
     return () => el.removeEventListener('wheel', handleWheel);
   }, [rowVirtualizer]);
 
+  // Scroll to active chunk when activeChunkIndex changes & snap horizontally to diff
   useEffect(() => {
     if (diffResult && diffResult.chunks.length > 0) {
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (activeChunk) {
         const targetLine = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
-        const targetOffset = Math.max(0, targetLine * 20 - 100);
+        const targetOffset = Math.max(0, targetLine * 20 - Math.floor(viewportHeight / 2) + 10);
         applyScrollTop(targetOffset);
+
+        // Pre-fetch range around targetLine
+        requestRange(Math.max(0, targetLine - 10), targetLine + 50);
+
+        const line = getLine(targetLine);
+        if (line) {
+          const firstSpan =
+            line.left_inline?.find((s) => s.highlight) || line.right_inline?.find((s) => s.highlight);
+          if (firstSpan && firstSpan.start > 15) {
+            const charOffset = Math.max(0, (firstSpan.start - 6) * 8);
+            if (scrollContainerRef.current) scrollContainerRef.current.scrollLeft = charOffset;
+          }
+        }
       }
     }
-  }, [activeChunkIndex, diffResult, applyScrollTop]);
+  }, [activeChunkIndex, diffResult, applyScrollTop, viewportHeight, requestRange, getLine]);
+
+  // When line loads in lineMap, snap horizontally to diff characters if needed
+  useEffect(() => {
+    if (diffResult && diffResult.chunks.length > 0) {
+      const activeChunk = diffResult.chunks[activeChunkIndex];
+      if (!activeChunk) return;
+      const targetLine = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
+      const line = getLine(targetLine);
+      if (line) {
+        const firstSpan =
+          line.left_inline?.find((s) => s.highlight) || line.right_inline?.find((s) => s.highlight);
+        if (firstSpan && firstSpan.start > 15) {
+          const charOffset = Math.max(0, (firstSpan.start - 6) * 8);
+          if (scrollContainerRef.current) scrollContainerRef.current.scrollLeft = charOffset;
+        } else if (line.line_type === 'Modified' && line.left_text && line.right_text) {
+          let diffChar = 0;
+          const minLen = Math.min(line.left_text.length, line.right_text.length);
+          while (diffChar < minLen && line.left_text[diffChar] === line.right_text[diffChar]) {
+            diffChar++;
+          }
+          if (diffChar > 15) {
+            const charOffset = Math.max(0, (diffChar - 6) * 8);
+            if (scrollContainerRef.current) scrollContainerRef.current.scrollLeft = charOffset;
+          }
+        }
+      }
+    }
+  }, [activeChunkIndex, lineMap, getLine, diffResult]);
 
   useEffect(() => {
     if (editingLine && inputRef.current) {
@@ -154,8 +196,37 @@ export const UnifiedDiffViewer: React.FC = () => {
     }
   };
 
-  const renderInlineText = (text: string | null, spans: InlineSpan[], isDelete: boolean) => {
+  const renderInlineText = (
+    text: string | null,
+    spans: InlineSpan[],
+    isDelete: boolean,
+    otherLineText?: string | null
+  ) => {
     if (text === null) return null;
+
+    const hasHighlight = spans && spans.some((s) => s.highlight);
+    if (!hasHighlight && otherLineText !== undefined && otherLineText !== null && otherLineText !== text) {
+      let cp = 0;
+      const minLen = Math.min(text.length, otherLineText.length);
+      while (cp < minLen && text[cp] === otherLineText[cp]) {
+        cp++;
+      }
+      const before = text.slice(0, cp);
+      const after = text.slice(cp);
+      return (
+        <>
+          <span>{before}</span>
+          <span
+            className="inline-block mx-0.5 px-1.5 py-0 bg-amber-500/25 text-amber-300 border border-dashed border-amber-500/50 rounded-xs text-[10px] select-none font-sans leading-4 align-middle"
+            title={isDelete ? 'Difference inserted on right pane' : 'Difference removed from left pane'}
+          >
+            {isDelete ? '↳ inserted on right' : '↳ removed from left'}
+          </span>
+          <span>{after}</span>
+        </>
+      );
+    }
+
     if (!spans || spans.length === 0) return <span>{text}</span>;
 
     const chars = Array.from(text);
@@ -366,7 +437,19 @@ export const UnifiedDiffViewer: React.FC = () => {
                         className="cursor-text select-text w-full"
                         title="Double-click to edit line"
                       >
-                        {renderInlineText(displayedText, spans, isDeleted)}
+                        {isModified && line.left_text !== null && line.right_text !== null ? (
+                          <div className="flex items-center space-x-2">
+                            <span className="line-through text-rose-400/80 bg-rose-500/15 px-1 py-0 rounded-xs">
+                              {renderInlineText(line.left_text, line.left_inline, true, line.right_text)}
+                            </span>
+                            <span className="text-neutral-500 font-bold select-none text-[11px]">→</span>
+                            <span className="text-emerald-300 bg-emerald-500/15 px-1 py-0 rounded-xs">
+                              {renderInlineText(line.right_text, line.right_inline, false, line.left_text)}
+                            </span>
+                          </div>
+                        ) : (
+                          renderInlineText(displayedText, spans, isDeleted)
+                        )}
                       </div>
                     )}
                   </div>

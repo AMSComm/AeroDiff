@@ -536,10 +536,11 @@ pub fn diff_slices_scalable<T: Eq + std::hash::Hash + Copy + Ord>(
             let mut curr_r = 0;
 
             for (anchor_l, anchor_r) in anchors {
+                if anchor_l < curr_l || anchor_r < curr_r {
+                    continue;
+                }
                 let mut match_len = 1;
-                while curr_l <= anchor_l
-                    && curr_r <= anchor_r
-                    && anchor_l + match_len < left.len()
+                while anchor_l + match_len < left.len()
                     && anchor_r + match_len < right.len()
                     && left[anchor_l + match_len] == right[anchor_r + match_len]
                 {

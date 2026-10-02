@@ -91,7 +91,7 @@ export const CsvCompareView: React.FC = () => {
   const options = activeTab?.options;
   const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
 
-  const { totalLines, getLine, requestRange } = useDiffSessionLines(diffResult);
+  const { totalLines, getLine, lineMap, requestRange } = useDiffSessionLines(diffResult);
 
   // Detect delimiter from first non-empty line
   const delimiter = useMemo(() => {
@@ -115,6 +115,28 @@ export const CsvCompareView: React.FC = () => {
     }
     return { maxCols: max, columnHeaders: headers };
   }, [diffResult, delimiter, getLine]);
+
+  const colWidth = 140;
+
+  // Auto-detect columns with differences across loaded lines for quick navigation
+  const changedColIndices = useMemo(() => {
+    const indices = new Set<number>();
+    for (const [_, line] of lineMap.entries()) {
+      if (line.line_type === 'Modified' && line.left_text && line.right_text) {
+        const leftCells = splitCsvCells(line.left_text, delimiter);
+        const rightCells = splitCsvCells(line.right_text, delimiter);
+        for (let c = 0; c < maxCols; c++) {
+          const lv = leftCells[c] ?? '';
+          const rv = rightCells[c] ?? '';
+          if (!areCellsEqual(lv, rv, options)) {
+            indices.add(c);
+          }
+        }
+      }
+      if (indices.size >= 12) break;
+    }
+    return Array.from(indices).sort((a, b) => a - b);
+  }, [lineMap, delimiter, maxCols, options]);
 
   // Virtualizer for 60fps performance on large tables
   const rowVirtualizer = useVirtualizer({
@@ -166,6 +188,19 @@ export const CsvCompareView: React.FC = () => {
   }, []);
 
   const isSyncingHorizontal = useRef(false);
+
+  const scrollToColumn = useCallback(
+    (colIdx: number) => {
+      const targetScrollLeft = Math.max(0, colIdx * colWidth - 80);
+      isSyncingHorizontal.current = true;
+      if (leftContainerRef.current) leftContainerRef.current.scrollLeft = targetScrollLeft;
+      if (rightContainerRef.current) rightContainerRef.current.scrollLeft = targetScrollLeft;
+      requestAnimationFrame(() => {
+        isSyncingHorizontal.current = false;
+      });
+    },
+    [colWidth]
+  );
 
   const handleLeftHorizontalScroll = useCallback(() => {
     if (isSyncingHorizontal.current) return;
@@ -223,17 +258,71 @@ export const CsvCompareView: React.FC = () => {
     return () => el.removeEventListener('wheel', handleWheel);
   }, [rowVirtualizer]);
 
-  // Jump to active chunk when navigation buttons clicked
+  // Jump to active chunk when navigation buttons clicked & auto-scroll horizontal to changed column
   useEffect(() => {
     if (diffResult && diffResult.chunks.length > 0) {
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (activeChunk) {
         const lineIdx = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
-        const targetOffset = Math.max(0, lineIdx * 26 - 100);
+        const targetOffset = Math.max(0, lineIdx * 26 - Math.floor(viewportHeight / 2) + 13);
         applyScrollTop(targetOffset);
+
+        // Pre-fetch slice around lineIdx
+        requestRange(Math.max(0, lineIdx - 10), lineIdx + 50);
+
+        const line = getLine(lineIdx);
+        if (line) {
+          const leftCells = line.left_text !== null ? splitCsvCells(line.left_text, delimiter) : null;
+          const rightCells = line.right_text !== null ? splitCsvCells(line.right_text, delimiter) : null;
+          if (leftCells && rightCells) {
+            for (let c = 0; c < maxCols; c++) {
+              const lv = leftCells[c] ?? '';
+              const rv = rightCells[c] ?? '';
+              if (!areCellsEqual(lv, rv, options)) {
+                scrollToColumn(c);
+                break;
+              }
+            }
+          }
+        }
       }
     }
-  }, [activeChunkIndex, diffResult, applyScrollTop]);
+  }, [
+    activeChunkIndex,
+    diffResult,
+    applyScrollTop,
+    viewportHeight,
+    requestRange,
+    getLine,
+    delimiter,
+    maxCols,
+    options,
+    scrollToColumn,
+  ]);
+
+  // When lineMap receives the activeChunk line, snap horizontally to changed column
+  useEffect(() => {
+    if (diffResult && diffResult.chunks.length > 0) {
+      const activeChunk = diffResult.chunks[activeChunkIndex];
+      if (!activeChunk) return;
+      const lineIdx = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
+      const line = getLine(lineIdx);
+      if (line) {
+        const leftCells = line.left_text !== null ? splitCsvCells(line.left_text, delimiter) : null;
+        const rightCells = line.right_text !== null ? splitCsvCells(line.right_text, delimiter) : null;
+        if (leftCells && rightCells) {
+          for (let c = 0; c < maxCols; c++) {
+            const lv = leftCells[c] ?? '';
+            const rv = rightCells[c] ?? '';
+            if (!areCellsEqual(lv, rv, options)) {
+              scrollToColumn(c);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }, [activeChunkIndex, lineMap, getLine, delimiter, maxCols, options, scrollToColumn, diffResult]);
 
   // Cell edit trigger
   const startEditing = useCallback(
@@ -345,7 +434,6 @@ export const CsvCompareView: React.FC = () => {
   );
 
   const isIdentical = diffResult?.is_identical;
-  const colWidth = 140;
   const tableMinWidth = Math.max(40 + maxCols * colWidth, 400);
 
   return (
@@ -355,6 +443,28 @@ export const CsvCompareView: React.FC = () => {
         <div className="bg-emerald-500/10 border-b border-emerald-500/30 px-3 py-1 flex items-center justify-center space-x-2 text-emerald-400 text-xs shrink-0 font-sans">
           <CheckCircle2 className="w-3.5 h-3.5" />
           <span>Both CSV tables are identical.</span>
+        </div>
+      )}
+
+      {/* Changed Columns Quick Jump Bar */}
+      {changedColIndices.length > 0 && (
+        <div className="bg-neutral-900/90 border-b border-neutral-800 px-3 py-1 flex items-center space-x-2 text-[11px] shrink-0 overflow-x-auto">
+          <span className="text-amber-400 font-semibold whitespace-nowrap flex items-center space-x-1">
+            <span>⚠️ Changed Columns ({changedColIndices.length}):</span>
+          </span>
+          <div className="flex items-center space-x-1.5 overflow-x-auto py-0.5">
+            {changedColIndices.map((colIdx) => (
+              <button
+                key={colIdx}
+                onClick={() => scrollToColumn(colIdx)}
+                className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-200 hover:bg-amber-500/30 hover:border-amber-400 transition-colors flex items-center space-x-1 font-mono text-[11px] whitespace-nowrap cursor-pointer shadow-xs"
+                title={`Jump horizontally to ${columnHeaders[colIdx] || `Col ${colIdx + 1}`}`}
+              >
+                <span className="font-semibold">{columnHeaders[colIdx] || `Col ${colIdx + 1}`}</span>
+                <span className="text-[9px] text-amber-400/80">(Col {colIdx + 1})</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -392,16 +502,29 @@ export const CsvCompareView: React.FC = () => {
                     #
                   </div>
                   <div className="flex-1 flex">
-                    {columnHeaders.map((h, idx) => (
-                      <div
-                        key={idx}
-                        style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
-                        className="px-2 py-1.5 truncate border-r border-neutral-800/60"
-                        title={h}
-                      >
-                        {h}
-                      </div>
-                    ))}
+                    {columnHeaders.map((h, idx) => {
+                      const hasDiff = changedColIndices.includes(idx);
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => hasDiff && scrollToColumn(idx)}
+                          style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
+                          className={`px-2 py-1.5 truncate border-r border-neutral-800/60 transition-colors flex items-center justify-between ${
+                            hasDiff
+                              ? 'bg-amber-500/15 text-amber-200 font-bold border-b-2 border-b-amber-500 cursor-pointer hover:bg-amber-500/25'
+                              : 'text-neutral-400'
+                          }`}
+                          title={hasDiff ? `${h} (Contains differences - Click to snap horizontally)` : h}
+                        >
+                          <span className="truncate">{h}</span>
+                          {hasDiff && (
+                            <span className="ml-1 text-[9px] px-1 py-0.2 bg-amber-500/30 text-amber-300 rounded font-mono font-bold shrink-0">
+                              DIFF
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -453,12 +576,12 @@ export const CsvCompareView: React.FC = () => {
                     <div
                       key={virtualRow.index}
                       className={`absolute top-0 left-0 w-full flex items-stretch border-b border-neutral-900/50 ${
-                        isActiveChunk ? 'ring-1 ring-emerald-500/40 z-10' : ''
+                        isActiveChunk ? 'ring-1 ring-emerald-500/60 z-10 shadow-xs' : ''
                       } ${
                         isDeleted
-                          ? 'bg-rose-500/10'
+                          ? 'bg-rose-500/15 border-l-2 border-rose-500'
                           : showModifiedBg
-                          ? 'bg-amber-500/5'
+                          ? 'bg-amber-500/15 border-l-2 border-amber-500'
                           : leftCells === null
                           ? 'bg-neutral-900/60'
                           : 'hover:bg-neutral-900/40'
@@ -521,13 +644,19 @@ export const CsvCompareView: React.FC = () => {
                                 style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
                                 className={`px-2 py-1 truncate border-r border-neutral-800/40 leading-5 cursor-text hover:bg-neutral-800/50 ${
                                   isDiffCell
-                                    ? 'bg-amber-500/25 text-amber-200 border-l border-r border-amber-500/40 font-semibold'
+                                    ? 'bg-amber-500/30 text-amber-100 ring-1 ring-amber-400/70 font-semibold shadow-xs'
                                     : isDeleted
                                     ? 'text-rose-200'
                                     : 'text-neutral-300'
                                 }`}
                               >
-                                {cellVal}
+                                {isDiffCell && cellVal === '' ? (
+                                  <span className="italic text-neutral-500 text-[10px] bg-neutral-900/90 px-1.5 py-0.5 rounded border border-dashed border-amber-500/50 select-none">
+                                    (empty)
+                                  </span>
+                                ) : (
+                                  cellVal
+                                )}
                               </div>
                             );
                           })
@@ -578,7 +707,7 @@ export const CsvCompareView: React.FC = () => {
                   const prevLine = virtualRow.index > 0 ? getLine(virtualRow.index - 1) : null;
                   const isChunkStart =
                     line.chunk_id !== null &&
-                    (virtualRow.index === 0 || prevLine?.chunk_id !== line.chunk_id);
+                    (virtualRow.index === 0 || (prevLine !== null && prevLine !== undefined && prevLine.chunk_id !== line.chunk_id));
 
                   const isModified = line.line_type === 'Modified';
                   const isDeleted = line.line_type === 'Deleted';
@@ -652,16 +781,29 @@ export const CsvCompareView: React.FC = () => {
                     #
                   </div>
                   <div className="flex-1 flex">
-                    {columnHeaders.map((h, idx) => (
-                      <div
-                        key={idx}
-                        style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
-                        className="px-2 py-1.5 truncate border-r border-neutral-800/60"
-                        title={h}
-                      >
-                        {h}
-                      </div>
-                    ))}
+                    {columnHeaders.map((h, idx) => {
+                      const hasDiff = changedColIndices.includes(idx);
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => hasDiff && scrollToColumn(idx)}
+                          style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
+                          className={`px-2 py-1.5 truncate border-r border-neutral-800/60 transition-colors flex items-center justify-between ${
+                            hasDiff
+                              ? 'bg-amber-500/15 text-amber-200 font-bold border-b-2 border-b-amber-500 cursor-pointer hover:bg-amber-500/25'
+                              : 'text-neutral-400'
+                          }`}
+                          title={hasDiff ? `${h} (Contains differences - Click to snap horizontally)` : h}
+                        >
+                          <span className="truncate">{h}</span>
+                          {hasDiff && (
+                            <span className="ml-1 text-[9px] px-1 py-0.2 bg-amber-500/30 text-amber-300 rounded font-mono font-bold shrink-0">
+                              DIFF
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -713,12 +855,12 @@ export const CsvCompareView: React.FC = () => {
                     <div
                       key={virtualRow.index}
                       className={`absolute top-0 left-0 w-full flex items-stretch border-b border-neutral-900/50 ${
-                        isActiveChunk ? 'ring-1 ring-emerald-500/40 z-10' : ''
+                        isActiveChunk ? 'ring-1 ring-emerald-500/60 z-10 shadow-xs' : ''
                       } ${
                         isAdded
-                          ? 'bg-emerald-500/10'
+                          ? 'bg-emerald-500/15 border-l-2 border-emerald-500'
                           : showModifiedBg
-                          ? 'bg-amber-500/5'
+                          ? 'bg-amber-500/15 border-l-2 border-amber-500'
                           : rightCells === null
                           ? 'bg-neutral-900/60'
                           : 'hover:bg-neutral-900/40'
@@ -781,13 +923,19 @@ export const CsvCompareView: React.FC = () => {
                                 style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
                                 className={`px-2 py-1 truncate border-r border-neutral-800/40 leading-5 cursor-text hover:bg-neutral-800/50 ${
                                   isDiffCell
-                                    ? 'bg-amber-500/25 text-amber-200 border-l border-r border-amber-500/40 font-semibold'
+                                    ? 'bg-amber-500/30 text-amber-100 ring-1 ring-amber-400/70 font-semibold shadow-xs'
                                     : isAdded
                                     ? 'text-emerald-200'
                                     : 'text-neutral-300'
                                 }`}
                               >
-                                {cellVal}
+                                {isDiffCell && cellVal === '' ? (
+                                  <span className="italic text-neutral-500 text-[10px] bg-neutral-900/90 px-1.5 py-0.5 rounded border border-dashed border-amber-500/50 select-none">
+                                    (empty)
+                                  </span>
+                                ) : (
+                                  cellVal
+                                )}
                               </div>
                             );
                           })

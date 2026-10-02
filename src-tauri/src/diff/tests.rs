@@ -298,4 +298,67 @@ mod tests {
         assert!(!res.is_identical);
         assert!(res.total_virtual_lines > 2_000_000);
     }
+
+    #[test]
+    fn test_user_heavy_files() {
+        use crate::commands::compare_files;
+        let p1 = "/Users/huy/Downloads/journal_detail_20261001.csv";
+        let p2 = "/Users/huy/Downloads/journal_detail_20261002.csv";
+        if !std::path::Path::new(p1).exists() || !std::path::Path::new(p2).exists() {
+            return;
+        }
+
+        let start = std::time::Instant::now();
+        let res = compare_files(p1.to_string(), p2.to_string(), DiffOptions::default(), None, None).unwrap();
+        let elapsed = start.elapsed();
+        println!("🚀 User CSV files compared in {:?}", elapsed);
+        println!("Total virtual lines: {}", res.total_virtual_lines);
+        println!("Session ID: {:?}", res.session_id);
+        println!("Chunks count: {}", res.chunks.len());
+        let mut total_chunk_lines = 0;
+        for c in &res.chunks {
+            total_chunk_lines += c.left_count.max(c.right_count);
+        }
+        println!("Total chunk diff lines: {}", total_chunk_lines);
+        if !res.chunks.is_empty() {
+            println!("First chunk: {:?}", res.chunks[0]);
+            println!("Last chunk: {:?}", res.chunks.last());
+        }
+
+        // Print some compact_lines around the first diff
+        let _sm = crate::diff::session::get_diff_session_manager();
+        assert_eq!(res.total_virtual_lines, 596640);
+        assert_eq!(res.total_left_lines, 596640);
+        assert_eq!(res.total_right_lines, 596640);
+        assert_eq!(total_chunk_lines, 33522);
+    }
+
+    #[test]
+    fn test_anchor_extension_no_duplicates() {
+        use super::super::engine::compute_diff_session_from_sources;
+        use super::super::session::SourceBuffer;
+        use std::sync::Arc;
+
+        let mut left = String::new();
+        let mut right = String::new();
+        for i in 0..10_000 {
+            if i % 100 == 0 {
+                left.push_str(&format!("mod_{}_left\n", i));
+                right.push_str(&format!("mod_{}_right\n", i));
+            } else {
+                left.push_str(&format!("common_line_{}\n", i));
+                right.push_str(&format!("common_line_{}\n", i));
+            }
+        }
+
+        let left_src = SourceBuffer::Memory(Arc::new(left.into_bytes()));
+        let right_src = SourceBuffer::Memory(Arc::new(right.into_bytes()));
+        let options = DiffOptions::default();
+
+        let res = compute_diff_session_from_sources(left_src, right_src, &options);
+        assert_eq!(res.total_virtual_lines, 10_000);
+        assert_eq!(res.total_left_lines, 10_000);
+        assert_eq!(res.total_right_lines, 10_000);
+        assert_eq!(res.chunks.len(), 100);
+    }
 }

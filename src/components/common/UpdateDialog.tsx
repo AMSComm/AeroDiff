@@ -106,8 +106,8 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
               <Sparkles size={16} />
             </div>
             <div>
-              <h3 className="font-semibold text-sm text-neutral-100">Cập nhật AeroDiff</h3>
-              <p className="text-[11px] text-neutral-400">Phiên bản hiện tại: v{CURRENT_VERSION}</p>
+              <h3 className="font-semibold text-sm text-neutral-100">AeroDiff Update</h3>
+              <p className="text-[11px] text-neutral-400">Current version: v{CURRENT_VERSION}</p>
             </div>
           </div>
           <button
@@ -124,13 +124,13 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
           {loading ? (
             <div className="flex flex-col items-center justify-center py-6 gap-3 text-neutral-400">
               <RefreshCw size={24} className="animate-spin text-emerald-400" />
-              <span className="text-xs">Đang kiểm tra bản cập nhật mới nhất...</span>
+              <span className="text-xs">Checking for latest updates...</span>
             </div>
           ) : error ? (
             <div className="rounded-lg bg-rose-500/10 border border-rose-500/30 p-3 text-xs text-rose-300 flex items-start gap-2">
               <AlertCircle size={15} className="text-rose-400 shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium">Không thể kiểm tra cập nhật</p>
+                <p className="font-medium">Failed to check for updates</p>
                 <p className="text-[11px] text-rose-400/80 mt-0.5">{error}</p>
               </div>
             </div>
@@ -139,23 +139,23 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
               <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-3">
                 <div>
                   <span className="font-semibold text-emerald-300 text-sm">
-                    Đã có phiên bản mới: v{updateInfo.latestVersion}
+                    New version available: v{updateInfo.latestVersion}
                   </span>
                   <p className="text-[11px] text-neutral-400 mt-0.5">
                     {updateInfo.releaseDate
-                      ? `Phát hành ngày ${new Date(updateInfo.releaseDate).toLocaleDateString()}`
-                      : 'Bản cập nhật được khuyến nghị'}
+                      ? `Released on ${new Date(updateInfo.releaseDate).toLocaleDateString()}`
+                      : 'Recommended update'}
                   </p>
                 </div>
                 <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-300 border border-emerald-500/30">
-                  MỚI
+                  NEW
                 </span>
               </div>
 
               {/* Release Notes */}
               {updateInfo.notes && (
                 <div className="space-y-1">
-                  <span className="text-[11px] font-medium text-neutral-400">Nội dung cập nhật:</span>
+                  <span className="text-[11px] font-medium text-neutral-400">Release Notes:</span>
                   <div className="max-h-36 overflow-y-auto rounded-lg bg-neutral-900/80 p-2.5 text-[11px] text-neutral-300 whitespace-pre-line border border-neutral-800 leading-relaxed font-mono">
                     {updateInfo.notes}
                   </div>
@@ -168,9 +168,9 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
                   <div className="flex justify-between text-[11px] text-neutral-400">
                     <span className="flex items-center gap-1.5">
                       <RefreshCw size={12} className="animate-spin text-emerald-400" />
-                      Đang tải và cập nhật ứng dụng...
+                      Downloading and installing update...
                     </span>
-                    <span>{progress !== null ? `${progress}%` : 'Đang xử lý...'}</span>
+                    <span>{progress !== null ? `${progress}%` : 'Processing...'}</span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
                     <div
@@ -184,7 +184,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
               {installSuccess && (
                 <div className="flex items-center gap-2 rounded-lg bg-emerald-500/20 border border-emerald-500/40 p-2.5 text-emerald-300">
                   <CheckCircle2 size={16} />
-                  <span>Cài đặt hoàn tất! Đang khởi động lại AeroDiff...</span>
+                  <span>Update completed! Restarting AeroDiff...</span>
                 </div>
               )}
             </div>
@@ -193,9 +193,9 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-900 border border-neutral-800 text-emerald-400">
                 <CheckCircle2 size={20} />
               </div>
-              <p className="font-medium text-neutral-200 mt-1">AeroDiff đã ở phiên bản mới nhất</p>
+              <p className="font-medium text-neutral-200 mt-1">AeroDiff is up to date</p>
               <p className="text-[11px] text-neutral-500">
-                Bạn đang sử dụng phiên bản v{CURRENT_VERSION}
+                You are running version v{CURRENT_VERSION}
               </p>
             </div>
           )}
@@ -209,7 +209,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
             className="flex items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-200 disabled:opacity-30 cursor-pointer"
           >
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-            Kiểm tra lại
+            Check Again
           </button>
 
           <div className="flex items-center gap-2">
@@ -218,7 +218,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
               disabled={downloading}
               className="rounded-lg px-3 py-1.5 text-xs text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200 transition-colors cursor-pointer disabled:opacity-30"
             >
-              Đóng
+              Close
             </button>
 
             {updateInfo?.available && (
@@ -229,7 +229,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
                   className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3.5 py-1.5 text-xs font-semibold text-neutral-950 hover:bg-emerald-400 active:bg-emerald-600 transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
                 >
                   <Download size={13} />
-                  {downloading ? 'Đang cập nhật...' : 'Cập nhật ngay'}
+                  {downloading ? 'Updating...' : 'Update Now'}
                 </button>
               ) : updateInfo.downloadUrl ? (
                 <a
@@ -239,7 +239,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
                   className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3.5 py-1.5 text-xs font-semibold text-neutral-950 hover:bg-emerald-400 transition-colors shadow-sm cursor-pointer"
                 >
                   <ExternalLink size={13} />
-                  Tải trên GitHub
+                  View on GitHub
                 </a>
               ) : null
             )}

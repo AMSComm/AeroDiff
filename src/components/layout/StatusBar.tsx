@@ -104,7 +104,7 @@ export const StatusBar: React.FC = () => {
           <div className="h-3 w-px bg-neutral-800" />
           <button
             onClick={() => setIsUpdateOpen(true)}
-            title="Kiểm tra cập nhật AeroDiff"
+            title="Check for AeroDiff updates"
             className="hover:text-emerald-400 transition-colors flex items-center space-x-1 cursor-pointer text-[10px] text-neutral-400 hover:bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-800"
           >
             <Sparkles className="w-2.5 h-2.5 text-emerald-400" />
