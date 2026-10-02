@@ -7,6 +7,7 @@ const MAX_CACHE_SIZE = 25_000;
 const MAX_PAGES_PER_BATCH = 10; // Up to 1,000 lines per single IPC batch call
 
 export function useDiffSessionLines(diffResult: DiffResult | null | undefined) {
+  const [prevDiffResult, setPrevDiffResult] = useState(diffResult);
   const [lineMap, setLineMap] = useState<Map<number, DiffLine>>(() => {
     const map = new Map<number, DiffLine>();
     if (diffResult?.lines) {
@@ -22,12 +23,9 @@ export function useDiffSessionLines(diffResult: DiffResult | null | undefined) {
   const fetchedPages = useRef<Set<number>>(new Set());
   const cacheRef = useRef<Map<number, DiffLine>>(lineMap);
 
-  useEffect(() => {
-    cacheRef.current = lineMap;
-  }, [lineMap]);
-
-  // Reset cache whenever diffResult or session_id changes
-  useEffect(() => {
+  // Synchronously sync cache and lineMap if diffResult changed during render
+  if (prevDiffResult !== diffResult) {
+    setPrevDiffResult(diffResult);
     const map = new Map<number, DiffLine>();
     fetchedPages.current.clear();
     inFlightPages.current.clear();
@@ -46,7 +44,12 @@ export function useDiffSessionLines(diffResult: DiffResult | null | undefined) {
       }
     }
     setLineMap(map);
-  }, [sessionId, diffResult]);
+    cacheRef.current = map;
+  }
+
+  useEffect(() => {
+    cacheRef.current = lineMap;
+  }, [lineMap]);
 
   const requestRange = useCallback(
     async (startIndex: number, endIndex: number) => {
