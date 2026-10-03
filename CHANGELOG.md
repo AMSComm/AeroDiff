@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.1.4] - 2026-10-03
+
+### 🐛 Critical Packaging & Startup Fix
+- **Fix Main Application Binary Selection**: Resolved a packaging issue where the headless TCP test utility (`ipc_server`) was packaged as the primary application executable instead of the GUI app (`aerodiff`), causing the application to launch into a background socket listener without displaying a GUI window.
+- **Explicit Cargo & Tauri Binary Target**: Configured `default-run = "aerodiff"`, explicit `[[bin]]` and `[[example]]` definitions in `Cargo.toml`, and `mainBinaryName = "aerodiff"` in `tauri.conf.json` to guarantee the GUI executable is always selected across macOS, Windows, and Linux bundles.
+- **Atomic Multi-Platform Release Publishing**: Configured GitHub Actions release pipeline to compile macOS, Windows, and Linux packages into a draft release first, and only publish the release publicly once all platform packages have finished building and uploading.
+
+---
+
 ## [v0.1.3] - 2026-10-03
 
 ### ⚡ Scalable Diff Engine & Memory Alignment

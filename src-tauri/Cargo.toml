@@ -1,10 +1,19 @@
 [package]
 name = "aerodiff"
-version = "0.1.3"
+version = "0.1.4"
 description = "AeroDiff - Ultra-fast, lightweight cross-platform diff & merge tool"
 authors = ["AM Software <contact@amsoftware.com.vn>"]
 license = "MIT"
 edition = "2021"
+default-run = "aerodiff"
+
+[[bin]]
+name = "aerodiff"
+path = "src/main.rs"
+
+[[example]]
+name = "ipc_server"
+path = "examples/ipc_server.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

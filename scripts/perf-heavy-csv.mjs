@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
 import { spawn } from 'child_process';
+import { existsSync } from 'fs';
 import http from 'http';
 import readline from 'readline';
 
@@ -92,7 +93,10 @@ async function runBenchmark() {
 
   // 1. Start Rust IPC Server
   console.log('\n🦀 Starting Rust native release IPC server...');
-  const ipcClient = new RustIpcClient('/Users/huy/dev/amktest/aerodiff/src-tauri/target/release/ipc_server');
+  const ipcPath = existsSync('/Users/huy/dev/amktest/aerodiff/src-tauri/target/release/examples/ipc_server')
+    ? '/Users/huy/dev/amktest/aerodiff/src-tauri/target/release/examples/ipc_server'
+    : '/Users/huy/dev/amktest/aerodiff/src-tauri/target/release/ipc_server';
+  const ipcClient = new RustIpcClient(ipcPath);
   ipcClient.start();
 
   // 2. Start Vite Preview Server
