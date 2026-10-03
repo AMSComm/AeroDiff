@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.1.3] - 2026-10-03
+
+### ⚡ Scalable Diff Engine & Memory Alignment
+- **Fix Scalable Diff Anchor Loop**: Fixed an anchor extension loop in `diff/engine.rs` where subsequent matching line anchors could re-process preceding lines, causing runaway virtual line expansion (dropping virtual lines from 205M back to exact 596,640) and eliminating multi-gigabyte memory bloat. Diff calculation time on two 133MB CSV files (596,640 lines) dropped to ~590ms.
+- **Synchronous Cache Hydration**: Fixed stale render lag in `useDiffSessionLines` by immediately synchronizing cache maps during component render when new diff sessions arrive, eliminating intermediate empty flashes.
+
+### 📊 Tabular CSV Comparison UX
+- **Intelligent Horizontal Auto-Snap**: Automatically aligns and centers the first modified column into view when seeking between differences or jumping to changed rows, eliminating manual scrolling across wide multi-column CSV tables.
+- **Changed Columns Navigation Toolbar**: Added quick-access jump buttons on the CSV comparison toolbar highlighting modified columns by name and index (e.g. `Col 9`, `Col 10`) with one-click instant focus.
+- **High-Contrast Column & Cell Badging**: Added bright delta border glows and `DIFF` badges to changed column headers, accompanied by clear high-contrast `(empty)` indicators for missing/empty cell values.
+- **Proactive Chunk Pre-Fetching**: Pre-caches the initial diff chunk on file load so changed columns and delta indicators are highlighted immediately without waiting for scroll events.
+
+### 📝 Text View Precision Indicators
+- **Context-Aware Insertion Markers**: In Split View, added dedicated `↳ inserted on right` markers on lines where the left pane has no corresponding deletion, clearly disambiguating line insertions from blank lines.
+- **Inline Before/After Unified View**: Added inline before/after delta text (`[strikethrough old] → [new]`) for modified lines in Unified View.
+- **Centered Vertical Diff Navigation**: Vertically centers diff chunks in viewport during Next/Previous difference jumps.
+
+### 🧪 Automated E2E & Real-World Performance Benchmarking
+- **Full Playwright E2E Suite**: Integrated comprehensive automated Playwright E2E test suite running against native Tauri IPC server (`pnpm run test:e2e`).
+- **133MB Stress Benchmark**: Verified 60 FPS scrolling and <50ms seek latency on production 133MB / 596,640-line datasets.
+
+---
+
 ## [v0.1.2] - 2026-09-25
 
 ### ⚡ Heavy File & Scalable Diff Architecture
