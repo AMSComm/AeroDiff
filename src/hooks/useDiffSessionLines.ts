@@ -136,9 +136,9 @@ export function useDiffSessionLines(diffResult: DiffResult | null | undefined) {
 
   const getLine = useCallback(
     (index: number): DiffLine | undefined => {
-      return cacheRef.current.get(index) ?? lineMap.get(index);
+      return cacheRef.current.get(index);
     },
-    [lineMap]
+    []
   );
 
   return {

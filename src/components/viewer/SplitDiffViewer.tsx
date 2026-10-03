@@ -182,15 +182,21 @@ export const SplitDiffViewer: React.FC = () => {
 
     el.addEventListener('wheel', handleWheel, { passive: false });
     return () => el.removeEventListener('wheel', handleWheel);
-  }, [rowVirtualizer]);
+  }, [rowVirtualizer, totalLines]);
+
+  const prevChunkIndexRef = useRef<number | null>(null);
 
   // Scroll to active chunk when activeChunkIndex changes & snap horizontally to diff
   useEffect(() => {
     if (diffResult && diffResult.chunks.length > 0) {
+      if (prevChunkIndexRef.current === activeChunkIndex) return;
+      prevChunkIndexRef.current = activeChunkIndex;
+
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (activeChunk) {
         const targetLine = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
-        const targetOffset = Math.max(0, targetLine * 20 - Math.floor(viewportHeight / 2) + 10);
+        // Align the first difference line to the top of the viewport
+        const targetOffset = Math.max(0, targetLine * 20);
         applyScrollTop(targetOffset);
 
         // Pre-fetch range around targetLine
@@ -208,7 +214,7 @@ export const SplitDiffViewer: React.FC = () => {
         }
       }
     }
-  }, [activeChunkIndex, diffResult, applyScrollTop, viewportHeight, requestRange, getLine]);
+  }, [activeChunkIndex, diffResult, applyScrollTop, requestRange, getLine]);
 
   // When line loads in lineMap, snap horizontally to diff characters if needed
   useEffect(() => {

@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useEffect } from 'react';
+import React, { useRef, useCallback, useEffect, useState } from 'react';
 
 interface MasterVerticalScrollbarProps {
   scrollTop: number;
@@ -18,7 +18,7 @@ export const MasterVerticalScrollbar: React.FC<MasterVerticalScrollbarProps> = (
   const trackRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
   const dragStartYRef = useRef(0);
-  const dragStartScrollTopRef = useRef(0);
+  const [dragThumbTop, setDragThumbTop] = useState<number | null>(null);
 
   const maxScroll = Math.max(0, totalHeight - viewportHeight);
   const isScrollable = maxScroll > 0 && viewportHeight > 0;
@@ -29,9 +29,10 @@ export const MasterVerticalScrollbar: React.FC<MasterVerticalScrollbarProps> = (
     : 0;
 
   const maxThumbTop = Math.max(0, viewportHeight - thumbHeight);
-  const thumbTop = isScrollable && maxThumbTop > 0
+  const computedThumbTop = isScrollable && maxThumbTop > 0
     ? Math.min(maxThumbTop, Math.max(0, (scrollTop / maxScroll) * maxThumbTop))
     : 0;
+  const thumbTop = dragThumbTop !== null ? dragThumbTop : computedThumbTop;
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -41,19 +42,22 @@ export const MasterVerticalScrollbar: React.FC<MasterVerticalScrollbarProps> = (
 
       isDraggingRef.current = true;
       dragStartYRef.current = e.clientY;
-      dragStartScrollTopRef.current = scrollTop;
+      const startThumbTop = computedThumbTop;
+      setDragThumbTop(startThumbTop);
       document.body.style.userSelect = 'none';
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
         if (!isDraggingRef.current || maxThumbTop <= 0) return;
         const deltaY = moveEvent.clientY - dragStartYRef.current;
-        const deltaScroll = (deltaY / maxThumbTop) * maxScroll;
-        const targetScroll = Math.max(0, Math.min(maxScroll, dragStartScrollTopRef.current + deltaScroll));
+        const nextThumbTop = Math.max(0, Math.min(maxThumbTop, startThumbTop + deltaY));
+        setDragThumbTop(nextThumbTop);
+        const targetScroll = Math.max(0, Math.min(maxScroll, (nextThumbTop / maxThumbTop) * maxScroll));
         onScrollChange(targetScroll);
       };
 
       const handleMouseUp = () => {
         isDraggingRef.current = false;
+        setDragThumbTop(null);
         document.body.style.userSelect = '';
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp);
@@ -62,7 +66,7 @@ export const MasterVerticalScrollbar: React.FC<MasterVerticalScrollbarProps> = (
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
     },
-    [isScrollable, maxScroll, maxThumbTop, onScrollChange, scrollTop]
+    [isScrollable, maxScroll, maxThumbTop, onScrollChange, computedThumbTop]
   );
 
   const handleTrackClick = useCallback(

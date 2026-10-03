@@ -87,6 +87,15 @@ export const CsvCompareView: React.FC = () => {
   } | null>(null);
   const [editValue, setEditValue] = useState<string>('');
 
+  // Selected cell state for navigation
+  const [selectedCell, setSelectedCell] = useState<{
+    side: 'left' | 'right';
+    rowIndex: number;
+    colIndex: number;
+  } | null>(null);
+
+  const isCommittingRef = useRef(false);
+
   const diffResult = activeTab?.diffResult;
   const options = activeTab?.options;
   const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
@@ -249,7 +258,8 @@ export const CsvCompareView: React.FC = () => {
     const handleWheel = (e: WheelEvent) => {
       if (Math.abs(e.deltaY) > 0) {
         const totalSize = rowVirtualizer.getTotalSize() + 30; // +30 for header
-        const maxScroll = Math.max(0, totalSize - el.clientHeight);
+        const clientH = el.clientHeight || viewportHeight || 600;
+        const maxScroll = Math.max(0, totalSize - clientH);
         if (maxScroll > 0) {
           e.preventDefault();
           setScrollTop((prev) => {
@@ -263,17 +273,74 @@ export const CsvCompareView: React.FC = () => {
       }
     };
 
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    return () => el.removeEventListener('wheel', handleWheel);
-  }, [rowVirtualizer]);
+    el.addEventListener('wheel', handleWheel, { passive: false, capture: true });
+    return () => el.removeEventListener('wheel', handleWheel, { capture: true });
+  }, [rowVirtualizer, totalLines, viewportHeight]);
+
+  // Keep selected cell in view both vertically and horizontally
+  const scrollCellIntoView = useCallback(
+    (rowIndex: number, colIndex: number) => {
+      const rowTop = rowIndex * 26;
+      const rowBottom = (rowIndex + 1) * 26;
+      const headerHeight = 30;
+      const clientH = parentContainerRef.current?.clientHeight || viewportHeight || 600;
+      const effectiveViewport = Math.max(100, clientH - headerHeight);
+
+      // Vertical scroll check
+      setScrollTop((currentScroll) => {
+        let newScroll = currentScroll;
+        if (rowTop < currentScroll) {
+          newScroll = rowTop;
+        } else if (rowBottom > currentScroll + effectiveViewport - 10) {
+          newScroll = rowBottom - effectiveViewport + 10;
+        }
+        if (newScroll !== currentScroll) {
+          if (leftContainerRef.current) leftContainerRef.current.scrollTop = newScroll;
+          if (rightContainerRef.current) rightContainerRef.current.scrollTop = newScroll;
+          if (gutterContainerRef.current) gutterContainerRef.current.scrollTop = newScroll;
+        }
+        return newScroll;
+      });
+
+      // Horizontal scroll check
+      const colLeft = colIndex * colWidth;
+      const colRight = (colIndex + 1) * colWidth;
+      const container = leftContainerRef.current;
+      if (container) {
+        const clientW = Math.max(100, container.clientWidth - 40); // 40px for row number column
+        const currentScrollLeft = container.scrollLeft;
+        let targetScrollLeft = currentScrollLeft;
+        if (colLeft < currentScrollLeft) {
+          targetScrollLeft = Math.max(0, colLeft);
+        } else if (colRight > currentScrollLeft + clientW) {
+          targetScrollLeft = colRight - clientW + 20;
+        }
+        if (targetScrollLeft !== currentScrollLeft) {
+          isSyncingHorizontal.current = true;
+          if (leftContainerRef.current) leftContainerRef.current.scrollLeft = targetScrollLeft;
+          if (rightContainerRef.current) rightContainerRef.current.scrollLeft = targetScrollLeft;
+          requestAnimationFrame(() => {
+            isSyncingHorizontal.current = false;
+          });
+        }
+      }
+    },
+    [colWidth, viewportHeight]
+  );
+
+  const prevChunkIndexRef = useRef<number | null>(null);
 
   // Jump to active chunk when navigation buttons clicked & auto-scroll horizontal to changed column
   useEffect(() => {
     if (diffResult && diffResult.chunks.length > 0) {
+      if (prevChunkIndexRef.current === activeChunkIndex) return;
+      prevChunkIndexRef.current = activeChunkIndex;
+
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (activeChunk) {
         const lineIdx = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
-        const targetOffset = Math.max(0, lineIdx * 26 - Math.floor(viewportHeight / 2) + 13);
+        // Align diff row directly to the top of the table viewport
+        const targetOffset = Math.max(0, lineIdx * 26);
         applyScrollTop(targetOffset);
 
         // Pre-fetch slice around lineIdx
@@ -300,7 +367,6 @@ export const CsvCompareView: React.FC = () => {
     activeChunkIndex,
     diffResult,
     applyScrollTop,
-    viewportHeight,
     requestRange,
     getLine,
     delimiter,
@@ -351,59 +417,56 @@ export const CsvCompareView: React.FC = () => {
   // Cell edit commit
   const commitEdit = useCallback(
     (side: 'left' | 'right', rowIndex: number, colIndex: number, valToSave: string) => {
-      const line = getLine(rowIndex);
-      if (!line) {
+      if (isCommittingRef.current) return;
+      isCommittingRef.current = true;
+
+      try {
+        const line = getLine(rowIndex);
+        if (!line) return;
+        const lineNum = side === 'left' ? line.left_line_num : line.right_line_num;
+        if (!lineNum) return;
+
+        const storeTab = useTabStore.getState().getActiveTab();
+        const rawContent = side === 'left' ? storeTab?.leftContent || '' : storeTab?.rightContent || '';
+        const fileLines = rawContent.split('\n');
+        const lineIdx = lineNum - 1;
+        if (lineIdx < 0 || lineIdx >= fileLines.length) return;
+
+        const origLine = fileLines[lineIdx];
+        const cells = splitCsvCells(origLine, delimiter);
+        while (cells.length <= colIndex) {
+          cells.push('');
+        }
+
+        if (cells[colIndex] === valToSave) return;
+
+        cells[colIndex] = valToSave;
+
+        const encodedLine = cells
+          .map((c) => {
+            if (c.includes(delimiter) || c.includes('"') || c.includes('\n')) {
+              return `"${c.replace(/"/g, '""')}"`;
+            }
+            return c;
+          })
+          .join(delimiter);
+
+        fileLines[lineIdx] = encodedLine;
+        const updatedContent = fileLines.join('\n');
+
+        if (side === 'left') {
+          setLeftContent(updatedContent);
+        } else {
+          setRightContent(updatedContent);
+        }
+      } finally {
         setEditingCell(null);
-        return;
+        setTimeout(() => {
+          isCommittingRef.current = false;
+        }, 100);
       }
-      const lineNum = side === 'left' ? line.left_line_num : line.right_line_num;
-      if (!lineNum) {
-        setEditingCell(null);
-        return;
-      }
-
-      const rawContent = side === 'left' ? activeTab?.leftContent || '' : activeTab?.rightContent || '';
-      const fileLines = rawContent.split('\n');
-      const lineIdx = lineNum - 1;
-      if (lineIdx < 0 || lineIdx >= fileLines.length) {
-        setEditingCell(null);
-        return;
-      }
-
-      const origLine = fileLines[lineIdx];
-      const cells = splitCsvCells(origLine, delimiter);
-      while (cells.length <= colIndex) {
-        cells.push('');
-      }
-
-      if (cells[colIndex] === valToSave) {
-        setEditingCell(null);
-        return;
-      }
-
-      cells[colIndex] = valToSave;
-
-      const encodedLine = cells
-        .map((c) => {
-          if (c.includes(delimiter) || c.includes('"') || c.includes('\n')) {
-            return `"${c.replace(/"/g, '""')}"`;
-          }
-          return c;
-        })
-        .join(delimiter);
-
-      fileLines[lineIdx] = encodedLine;
-      const updatedContent = fileLines.join('\n');
-
-      if (side === 'left') {
-        setLeftContent(updatedContent);
-      } else {
-        setRightContent(updatedContent);
-      }
-
-      setEditingCell(null);
     },
-    [activeTab, delimiter, getLine, setLeftContent, setRightContent]
+    [delimiter, getLine, setLeftContent, setRightContent]
   );
 
   // Key navigation inside cell editor (Enter, Tab, Esc)
@@ -414,6 +477,11 @@ export const CsvCompareView: React.FC = () => {
       rowIndex: number,
       colIndex: number
     ) => {
+      e.stopPropagation();
+      if (e.nativeEvent) {
+        e.nativeEvent.stopImmediatePropagation();
+      }
+
       if (e.key === 'Enter') {
         e.preventDefault();
         commitEdit(side, rowIndex, colIndex, editValue);
@@ -441,6 +509,97 @@ export const CsvCompareView: React.FC = () => {
     },
     [commitEdit, editValue, maxCols, totalLines, startEditing]
   );
+
+  // Keyboard navigation for selected cell (Arrow keys, Tab, Enter/F2 to edit, Esc to deselect)
+  useEffect(() => {
+    if (!selectedCell || editingCell) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || isCommittingRef.current) {
+        return;
+      }
+      const active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+        return;
+      }
+
+      let nextRow = selectedCell.rowIndex;
+      let nextCol = selectedCell.colIndex;
+      let nextSide = selectedCell.side;
+      let handled = false;
+
+      if (e.key === 'ArrowUp') {
+        nextRow = Math.max(0, selectedCell.rowIndex - 1);
+        handled = true;
+      } else if (e.key === 'ArrowDown') {
+        nextRow = Math.min(totalLines - 1, selectedCell.rowIndex + 1);
+        handled = true;
+      } else if (e.key === 'ArrowLeft') {
+        if (selectedCell.colIndex > 0) {
+          nextCol = selectedCell.colIndex - 1;
+        } else if (selectedCell.side === 'right') {
+          nextSide = 'left';
+          nextCol = maxCols - 1;
+        }
+        handled = true;
+      } else if (e.key === 'ArrowRight') {
+        if (selectedCell.colIndex < maxCols - 1) {
+          nextCol = selectedCell.colIndex + 1;
+        } else if (selectedCell.side === 'left') {
+          nextSide = 'right';
+          nextCol = 0;
+        }
+        handled = true;
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          if (selectedCell.colIndex > 0) {
+            nextCol = selectedCell.colIndex - 1;
+          } else if (selectedCell.rowIndex > 0) {
+            nextRow = selectedCell.rowIndex - 1;
+            nextCol = maxCols - 1;
+          }
+        } else {
+          if (selectedCell.colIndex < maxCols - 1) {
+            nextCol = selectedCell.colIndex + 1;
+          } else if (selectedCell.rowIndex < totalLines - 1) {
+            nextRow = selectedCell.rowIndex + 1;
+            nextCol = 0;
+          }
+        }
+        handled = true;
+      } else if (e.key === 'Enter' || e.key === 'F2') {
+        e.preventDefault();
+        const line = getLine(selectedCell.rowIndex);
+        const text = selectedCell.side === 'left' ? line?.left_text : line?.right_text;
+        const cells = text ? splitCsvCells(text, delimiter) : [];
+        const val = cells[selectedCell.colIndex] ?? '';
+        startEditing(selectedCell.side, selectedCell.rowIndex, selectedCell.colIndex, val);
+        return;
+      } else if (e.key === 'Escape') {
+        setSelectedCell(null);
+        return;
+      }
+
+      if (handled) {
+        e.preventDefault();
+        setSelectedCell({ side: nextSide, rowIndex: nextRow, colIndex: nextCol });
+        scrollCellIntoView(nextRow, nextCol);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    selectedCell,
+    editingCell,
+    totalLines,
+    maxCols,
+    scrollCellIntoView,
+    getLine,
+    delimiter,
+    startEditing,
+  ]);
 
   const isIdentical = diffResult?.is_identical;
   const tableMinWidth = Math.max(40 + maxCols * colWidth, 400);
@@ -478,7 +637,7 @@ export const CsvCompareView: React.FC = () => {
       )}
 
       {/* Main Dual Table Split View */}
-      <div className="flex-1 flex overflow-hidden bg-neutral-950 select-none relative font-mono text-[12px]">
+      <div ref={parentContainerRef} className="flex-1 flex overflow-hidden bg-neutral-950 select-none relative font-mono text-[12px]">
         {/* Empty state */}
         {totalLines === 0 && (
           <div className="flex-1 flex items-center justify-center text-neutral-500 text-xs font-sans">
@@ -487,10 +646,11 @@ export const CsvCompareView: React.FC = () => {
         )}
 
         {totalLines > 0 && (
-          <div ref={parentContainerRef} className="flex-1 flex overflow-hidden relative">
+          <div className="flex-1 flex overflow-hidden relative">
             {/* === LEFT TABLE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
             <div
               ref={leftContainerRef}
+              data-testid="csv-left-container"
               onScroll={handleLeftHorizontalScroll}
               className="flex-1 overflow-x-auto overflow-y-hidden border-r border-neutral-800"
             >
@@ -643,20 +803,33 @@ export const CsvCompareView: React.FC = () => {
                               );
                             }
 
+                            const isSelected =
+                              selectedCell?.side === 'left' &&
+                              selectedCell?.rowIndex === virtualRow.index &&
+                              selectedCell?.colIndex === cIdx;
+
                             return (
                               <div
                                 key={cIdx}
+                                data-testid="csv-cell"
                                 title={`${cellVal} (Double-click to edit)`}
+                                onClick={() => {
+                                  setSelectedCell({ side: 'left', rowIndex: virtualRow.index, colIndex: cIdx });
+                                }}
                                 onDoubleClick={() =>
                                   startEditing('left', virtualRow.index, cIdx, cellVal)
                                 }
                                 style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
-                                className={`px-2 py-1 truncate border-r border-neutral-800/40 leading-5 cursor-text hover:bg-neutral-800/50 ${
-                                  isDiffCell
-                                    ? 'bg-amber-500/30 text-amber-100 ring-1 ring-amber-400/70 font-semibold shadow-xs'
+                                className={`px-2 py-1 truncate border-r border-neutral-800/40 leading-5 cursor-pointer select-none transition-shadow ${
+                                  isSelected
+                                    ? isDiffCell
+                                      ? 'bg-amber-500/40 text-amber-50 ring-2 ring-emerald-400 font-bold z-20 shadow-md'
+                                      : 'bg-emerald-500/25 text-white ring-2 ring-emerald-400 font-semibold z-20 shadow-md'
+                                    : isDiffCell
+                                    ? 'bg-amber-500/30 text-amber-100 ring-1 ring-amber-400/70 font-semibold shadow-xs hover:bg-amber-500/40'
                                     : isDeleted
-                                    ? 'text-rose-200'
-                                    : 'text-neutral-300'
+                                    ? 'text-rose-200 hover:bg-neutral-800/50'
+                                    : 'text-neutral-300 hover:bg-neutral-800/50'
                                 }`}
                               >
                                 {isDiffCell && cellVal === '' ? (
@@ -770,6 +943,7 @@ export const CsvCompareView: React.FC = () => {
             {/* === RIGHT TABLE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
             <div
               ref={rightContainerRef}
+              data-testid="csv-right-container"
               onScroll={handleRightHorizontalScroll}
               className="flex-1 overflow-x-auto overflow-y-hidden"
             >
@@ -922,20 +1096,33 @@ export const CsvCompareView: React.FC = () => {
                               );
                             }
 
+                            const isSelected =
+                              selectedCell?.side === 'right' &&
+                              selectedCell?.rowIndex === virtualRow.index &&
+                              selectedCell?.colIndex === cIdx;
+
                             return (
                               <div
                                 key={cIdx}
+                                data-testid="csv-cell"
                                 title={`${cellVal} (Double-click to edit)`}
+                                onClick={() => {
+                                  setSelectedCell({ side: 'right', rowIndex: virtualRow.index, colIndex: cIdx });
+                                }}
                                 onDoubleClick={() =>
                                   startEditing('right', virtualRow.index, cIdx, cellVal)
                                 }
                                 style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
-                                className={`px-2 py-1 truncate border-r border-neutral-800/40 leading-5 cursor-text hover:bg-neutral-800/50 ${
-                                  isDiffCell
-                                    ? 'bg-amber-500/30 text-amber-100 ring-1 ring-amber-400/70 font-semibold shadow-xs'
+                                className={`px-2 py-1 truncate border-r border-neutral-800/40 leading-5 cursor-pointer select-none transition-shadow ${
+                                  isSelected
+                                    ? isDiffCell
+                                      ? 'bg-amber-500/40 text-amber-50 ring-2 ring-emerald-400 font-bold z-20 shadow-md'
+                                      : 'bg-emerald-500/25 text-white ring-2 ring-emerald-400 font-semibold z-20 shadow-md'
+                                    : isDiffCell
+                                    ? 'bg-amber-500/30 text-amber-100 ring-1 ring-amber-400/70 font-semibold shadow-xs hover:bg-amber-500/40'
                                     : isAdded
-                                    ? 'text-emerald-200'
-                                    : 'text-neutral-300'
+                                    ? 'text-emerald-200 hover:bg-neutral-800/50'
+                                    : 'text-neutral-300 hover:bg-neutral-800/50'
                                 }`}
                               >
                                 {isDiffCell && cellVal === '' ? (
