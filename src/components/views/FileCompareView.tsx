@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
 import { useQuickCompareStore } from '../../stores/quickCompareStore';
-import { ContextMenu, ContextMenuItem } from '../common/ContextMenu';
+import { ContextMenu } from '../common/ContextMenu';
 import { SplitDiffViewer } from '../viewer/SplitDiffViewer';
 import { UnifiedDiffViewer } from '../viewer/UnifiedDiffViewer';
 import { DiffMinimap } from '../viewer/DiffMinimap';
@@ -71,8 +71,6 @@ export const FileCompareView: React.FC = () => {
     isDirtyLeft,
     isDirtyRight,
     csvViewMode,
-    leftEncoding,
-    rightEncoding,
   } = activeTab;
 
   const totalChunks = diffResult?.chunks.length || 0;

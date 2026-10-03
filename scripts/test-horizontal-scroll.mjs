@@ -49,7 +49,7 @@ async function runTest() {
 
     console.log('1️⃣ Setting up CSV Table Mode with 50 columns...');
     // Create CSV data with 50 columns to guarantee wide horizontal scroll
-    const headers = Array.from({ length: 50 }, (_, i) => `Col_${i + 1}`).join(',');
+    const _headers = Array.from({ length: 50 }, (_, i) => `Col_${i + 1}`).join(',');
     const rows = Array.from({ length: 100 }, (_, r) => 
       Array.from({ length: 50 }, (_, c) => `Val_${r + 1}_${c + 1}`).join(',')
     );
