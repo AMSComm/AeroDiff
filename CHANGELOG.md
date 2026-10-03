@@ -5,6 +5,24 @@ All notable changes to **AeroDiff** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.6] - 2026-10-03
+
+### 🖱️ Fluid Horizontal Trackpad Scrolling & Zero-Latency Sync
+- **Eliminate Trackpad Jitter & Stutter**: Resolved horizontal scrolling micro-stutters across macOS trackpads in both CSV Table and Text Diff views.
+- **Directional Dominance Detection**: `handleWheel` now differentiates between vertical and horizontal swipes (`absY >= absX`), ensuring trackpad horizontal gestures are never cancelled by vertical wheel event interception.
+- **Zero-Latency Microtask Synchronization**: Replaced `requestAnimationFrame` synchronization locks with microtask batching (`queueMicrotask`), locking direction source without dropping high-frequency (60Hz–120Hz) trackpad scroll events between Left and Right panes.
+- **Overscroll Clamping & Dynamic Widths**: Added `overscroll-x-none` and dynamic content width calculation to eliminate macOS rubberband gesture resistance and premature scroll clamping.
+
+### 🧭 Position-Aware Difference Navigation
+- **Relative Viewport Seeking**: Next Difference and Previous Difference navigation now compute target chunks dynamically relative to the user's current scroll position rather than an arbitrary index.
+- **Dynamic Chunk Jumps & Wrap-Around**: Scrolling freely down to row 10,000 between diffs at row 7,000 and 20,000 enables Previous Difference to jump immediately back to row 7,000, while Next Difference advances directly to row 20,000, complete with smooth circular wrap-around.
+
+### 🔄 Fast File Swapping & Quick Compare
+- **In-Place File/Folder Swapping**: Added "Change Left" and "Change Right" buttons in comparison headers, allowing users to swap files or folders on either side on-the-fly without resetting the comparison workspace.
+- **Context Menu Quick Compare**: Right-click any file or folder to select as "Left" or "Right" for comparison.
+- **Intelligent Multi-Selection Compare**: Selecting multiple items automatically pairs the first two items, prioritizing folders over files.
+- **Interactive Quick Compare HUD**: Introduced a persistent bottom HUD banner guiding step-by-step selection with quick action buttons.
+
 ---
 
 ## [v0.1.5] - 2026-10-03
