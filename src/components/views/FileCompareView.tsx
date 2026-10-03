@@ -15,8 +15,13 @@ import {
   Space,
   Rows,
   CaseSensitive,
+  FolderOpen,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
+import { useQuickCompareStore } from '../../stores/quickCompareStore';
+import { ContextMenu, ContextMenuItem } from '../common/ContextMenu';
 import { SplitDiffViewer } from '../viewer/SplitDiffViewer';
 import { UnifiedDiffViewer } from '../viewer/UnifiedDiffViewer';
 import { DiffMinimap } from '../viewer/DiffMinimap';
@@ -44,7 +49,10 @@ export const FileCompareView: React.FC = () => {
     prevChunk,
     setLeftContent,
     setRightContent,
+    changeSideFile,
   } = useTabStore();
+  const { selectedLeft, selectLeft, compareWithLeft } = useQuickCompareStore();
+  const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number; side: 'left' | 'right' } | null>(null);
 
   if (!activeTab || (activeTab.type !== 'file' && activeTab.type !== 'csv')) return null;
 
@@ -317,19 +325,49 @@ export const FileCompareView: React.FC = () => {
         </div>
       </div>
 
-      {/* File Paths Bar with dynamic Encoding Selectors */}
+      {/* File Paths Bar with dynamic Change File actions & context menu */}
       <div className="bg-neutral-900/60 border-b border-neutral-800/80 px-3 py-1 flex items-center justify-between text-[11px] text-neutral-400 font-mono shrink-0">
-        <div className="truncate flex-1 flex items-center space-x-2">
+        <div
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu({ x: e.clientX, y: e.clientY, side: 'left' });
+          }}
+          className="truncate flex-1 flex items-center space-x-2"
+        >
           <span className="text-neutral-500">Left:</span>
-          <span className="text-neutral-300 font-medium truncate">{leftPath || 'Untitled Left'}</span>
+          <span className="text-neutral-300 font-medium truncate" title={leftPath || 'Untitled Left'}>
+            {leftPath || 'Untitled Left'}
+          </span>
           {isDirtyLeft && <span className="text-amber-400 text-[10px] font-bold">(Unsaved)</span>}
+          <button
+            onClick={() => changeSideFile('left')}
+            title="Change Left File (Choose file from disk)"
+            className="p-1 hover:bg-neutral-800 text-neutral-400 hover:text-emerald-400 rounded transition-colors shrink-0"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+          </button>
         </div>
         <div className="hidden lg:flex items-center space-x-1 text-[10px] text-neutral-500 font-sans shrink-0 px-2 select-none">
-          <span>💡 Double-click any line/cell to edit directly</span>
+          <span>💡 Double-click any line/cell to edit | Right-click path to change</span>
         </div>
-        <div className="truncate flex-1 text-right flex items-center justify-end space-x-2">
+        <div
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu({ x: e.clientX, y: e.clientY, side: 'right' });
+          }}
+          className="truncate flex-1 text-right flex items-center justify-end space-x-2"
+        >
+          <button
+            onClick={() => changeSideFile('right')}
+            title="Change Right File (Choose file from disk)"
+            className="p-1 hover:bg-neutral-800 text-neutral-400 hover:text-emerald-400 rounded transition-colors shrink-0"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+          </button>
           {isDirtyRight && <span className="text-amber-400 text-[10px] font-bold">(Unsaved)</span>}
-          <span className="text-neutral-300 font-medium truncate">{rightPath || 'Untitled Right'}</span>
+          <span className="text-neutral-300 font-medium truncate" title={rightPath || 'Untitled Right'}>
+            {rightPath || 'Untitled Right'}
+          </span>
           <span className="text-neutral-500">:Right</span>
         </div>
       </div>
@@ -365,6 +403,53 @@ export const FileCompareView: React.FC = () => {
           </>
         )}
       </div>
+
+      {/* Context Menu for Path Selection & Fast Comparison */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          items={[
+            {
+              label: `Change ${contextMenu.side === 'left' ? 'Left' : 'Right'} File...`,
+              icon: <FolderOpen className="w-3.5 h-3.5 text-emerald-400" />,
+              onClick: () => changeSideFile(contextMenu.side),
+            },
+            {
+              label: 'Select as Left for Quick Compare',
+              icon: <Check className="w-3.5 h-3.5 text-emerald-400" />,
+              disabled: !(contextMenu.side === 'left' ? leftPath : rightPath),
+              onClick: () => {
+                const target = contextMenu.side === 'left' ? leftPath : rightPath;
+                if (target) selectLeft(target, false);
+              },
+            },
+            ...(selectedLeft && (contextMenu.side === 'left' ? leftPath : rightPath)
+              ? [
+                  {
+                    label: `Compare with Left (${selectedLeft.name})`,
+                    icon: <ArrowLeftRight className="w-3.5 h-3.5 text-emerald-400" />,
+                    onClick: () => {
+                      const target = contextMenu.side === 'left' ? leftPath : rightPath;
+                      if (target) compareWithLeft(target, false);
+                    },
+                  },
+                ]
+              : []),
+            { divider: true },
+            {
+              label: 'Copy Full Path',
+              icon: <Copy className="w-3.5 h-3.5 text-neutral-400" />,
+              disabled: !(contextMenu.side === 'left' ? leftPath : rightPath),
+              onClick: () => {
+                const target = contextMenu.side === 'left' ? leftPath : rightPath;
+                if (target) navigator.clipboard.writeText(target);
+              },
+            },
+          ]}
+        />
+      )}
     </div>
   );
 };

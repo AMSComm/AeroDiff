@@ -507,3 +507,15 @@ export async function invokeCloseDiffSession(sessionId: string): Promise<void> {
   }
 }
 
+export async function invokeGetCliArgs(): Promise<string[]> {
+  if (isTauri()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return await invoke<string[]>('get_cli_args');
+    } catch (err) {
+      console.warn('Tauri get_cli_args error:', err);
+    }
+  }
+  return [];
+}
+

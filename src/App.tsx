@@ -6,6 +6,9 @@ import { FolderCompareView } from './components/views/FolderCompareView';
 import { FileCompareView } from './components/views/FileCompareView';
 import { StatusBar } from './components/layout/StatusBar';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { QuickCompareHUD } from './components/layout/QuickCompareHUD';
+import { isTauri, invokeGetCliArgs } from './utils/ipc';
+import { useQuickCompareStore } from './stores/quickCompareStore';
 
 export const App: React.FC = () => {
   const {
@@ -72,6 +75,40 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [createTab, closeTab, nextChunk, prevChunk, undoAction, redoAction, saveLeftFile, saveRightFile]);
 
+  // Handle CLI Arguments and External Launch Events (OS Context Menu / Open With)
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let unlisten: (() => void) | undefined;
+
+    // Check startup CLI args
+    invokeGetCliArgs()
+      .then((args) => {
+        if (args && args.length > 0) {
+          useQuickCompareStore.getState().handleBatchCompare(args);
+        }
+      })
+      .catch(() => {});
+
+    // Listen to files opened dynamically (e.g. from subsequent CLI calls or OS context menu)
+    (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        unlisten = await listen<string[]>('cli-open-files', (event) => {
+          if (event.payload && Array.isArray(event.payload)) {
+            useQuickCompareStore.getState().handleBatchCompare(event.payload);
+          }
+        });
+      } catch (err) {
+        console.warn('Could not register cli-open-files listener:', err);
+      }
+    })();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-neutral-950 text-neutral-100 antialiased font-sans">
       {/* Top Tab Bar */}
@@ -87,6 +124,9 @@ export const App: React.FC = () => {
           {activeTab?.type === 'folder' && <FolderCompareView />}
           {(activeTab?.type === 'file' || activeTab?.type === 'csv') && <FileCompareView />}
         </ErrorBoundary>
+
+        {/* Global Quick Compare Floating HUD */}
+        <QuickCompareHUD />
       </main>
 
       {/* Bottom Status Bar */}

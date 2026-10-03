@@ -10,7 +10,7 @@ import {
   invokeSaveFile,
   invokeCloseDiffSession,
 } from '../utils/ipc';
-import { readFileContent } from '../utils/filePicker';
+import { pickPath, readFileContent } from '../utils/filePicker';
 import { cleanPath } from '../utils/pathUtils';
 import { saveRecentPath } from '../utils/recentPaths';
 import { loadSavedDiffPreferences, saveDiffPreferences } from '../utils/diffOptionsStorage';
@@ -77,6 +77,8 @@ interface TabState {
   redoAction: () => void;
   saveLeftFile: () => Promise<boolean>;
   saveRightFile: () => Promise<boolean>;
+  changeSideFile: (side: 'left' | 'right', newPath?: string) => Promise<boolean>;
+  changeFolderSide: (side: 'left' | 'right', newPath?: string) => Promise<boolean>;
   jumpToChunk: (index: number) => void;
   nextChunk: (fromLine?: number) => void;
   prevChunk: (fromLine?: number) => void;
@@ -832,6 +834,108 @@ export const useTabStore = create<TabState>((set, get) => ({
     }
 
     get().jumpToChunk(targetIndex);
+  },
+
+  changeSideFile: async (side: 'left' | 'right', newPath?: string) => {
+    let targetPath = newPath;
+    if (!targetPath) {
+      const picked = await pickPath('file');
+      if (!picked) return false;
+      targetPath = picked;
+    }
+
+    const active = get().getActiveTab();
+    if (!active || (active.type !== 'file' && active.type !== 'csv')) return false;
+
+    let content = '';
+    let encoding = 'UTF-8';
+    try {
+      const res = await readFileContent(targetPath);
+      content = res.content;
+      encoding = res.encoding;
+    } catch (e: any) {
+      console.error(`Failed to read new ${side} file:`, e);
+      get().updateActiveTab({ diffError: `Failed to read ${side} file: ${e?.message || e}` });
+      return false;
+    }
+
+    saveRecentPath(targetPath);
+
+    const otherPath = side === 'left' ? active.rightPath : active.leftPath;
+    const isCsv = Boolean(
+      targetPath.toLowerCase().endsWith('.csv') ||
+        targetPath.toLowerCase().endsWith('.tsv') ||
+        otherPath?.toLowerCase().endsWith('.csv') ||
+        otherPath?.toLowerCase().endsWith('.tsv')
+    );
+
+    const leftPath = side === 'left' ? targetPath : active.leftPath;
+    const rightPath = side === 'right' ? targetPath : active.rightPath;
+    const leftContent = side === 'left' ? content : active.leftContent;
+    const rightContent = side === 'right' ? content : active.rightContent;
+    const leftEncoding = side === 'left' ? encoding : active.leftEncoding;
+    const rightEncoding = side === 'right' ? encoding : active.rightEncoding;
+
+    const leftFileName = (leftPath || 'Left').split('/').pop() || 'Left';
+    const rightFileName = (rightPath || 'Right').split('/').pop() || 'Right';
+    const title = `${leftFileName} ↔ ${rightFileName}`;
+
+    get().updateActiveTab({
+      title,
+      type: isCsv ? 'csv' : 'file',
+      csvViewMode: isCsv ? active.csvViewMode || 'table' : undefined,
+      leftPath,
+      rightPath,
+      leftContent,
+      rightContent,
+      leftEncoding,
+      rightEncoding,
+      isDirtyLeft: side === 'left' ? false : active.isDirtyLeft,
+      isDirtyRight: side === 'right' ? false : active.isDirtyRight,
+      diffError: null,
+    });
+
+    await get().recomputeActiveDiff();
+    return true;
+  },
+
+  changeFolderSide: async (side: 'left' | 'right', newPath?: string) => {
+    let targetPath = newPath;
+    if (!targetPath) {
+      const picked = await pickPath('folder');
+      if (!picked) return false;
+      targetPath = picked;
+    }
+
+    const active = get().getActiveTab();
+    if (!active || active.type !== 'folder') return false;
+
+    saveRecentPath(targetPath);
+
+    const leftPath = side === 'left' ? targetPath : active.leftPath || '';
+    const rightPath = side === 'right' ? targetPath : active.rightPath || '';
+
+    const leftDirName = leftPath.split('/').pop() || 'Left';
+    const rightDirName = rightPath.split('/').pop() || 'Right';
+    const title = `📁 ${leftDirName} ↔ ${rightDirName}`;
+
+    get().updateActiveTab({
+      title,
+      leftPath,
+      rightPath,
+      isComputing: true,
+      diffError: null,
+    });
+
+    try {
+      const res = await invokeCompareFolders(leftPath, rightPath, true);
+      get().updateActiveTab({ folderResult: res, isComputing: false, diffError: null });
+      return true;
+    } catch (e: any) {
+      console.error('Failed to compare folders:', e);
+      get().updateActiveTab({ isComputing: false, diffError: String(e) });
+      return false;
+    }
   },
 
   syncActiveChunkFromLine: (currentLine: number) => {

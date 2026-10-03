@@ -5,9 +5,11 @@ import './index.css';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 import { useTabStore } from './stores/tabStore';
+import { useQuickCompareStore } from './stores/quickCompareStore';
 
 if (typeof window !== 'undefined') {
   (window as any).__TAB_STORE__ = useTabStore;
+  (window as any).__QUICK_COMPARE_STORE__ = useQuickCompareStore;
   window.addEventListener('error', (event) => {
     console.error('[AeroDiff Global Error]:', event.error || event.message);
   });

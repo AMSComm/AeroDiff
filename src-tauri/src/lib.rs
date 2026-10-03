@@ -12,6 +12,15 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            use tauri::{Emitter, Manager};
+            let paths: Vec<String> = args.into_iter().skip(1).collect();
+            let _ = app.emit("cli-open-files", paths);
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .invoke_handler(tauri::generate_handler![
             compare_text,
             compare_files,
@@ -22,8 +31,22 @@ pub fn run() {
             compare_folders_cmd,
             compare_csv_cmd,
             get_diff_slice,
-            close_diff_session
+            close_diff_session,
+            get_cli_args
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running AeroDiff application");
+        .build(tauri::generate_context!())
+        .expect("error while running AeroDiff application")
+        .run(|app_handle, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                use tauri::Emitter;
+                let paths: Vec<String> = urls
+                    .iter()
+                    .filter_map(|u| u.to_file_path().ok())
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect();
+                let _ = app_handle.emit("cli-open-files", paths);
+            }
+            let _ = (&app_handle, &event);
+        });
 }

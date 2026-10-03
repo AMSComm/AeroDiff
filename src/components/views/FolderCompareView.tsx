@@ -9,18 +9,62 @@ import {
   AlertTriangle,
   MinusCircle,
   PlusCircle,
+  FolderOpen,
+  ArrowLeftRight,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useTabStore } from '../../stores/tabStore';
+import { useQuickCompareStore } from '../../stores/quickCompareStore';
+import { ContextMenu } from '../common/ContextMenu';
 import { FolderEntry, FolderItemStatus } from '../../types/diff';
 import { invokeCompareFolders } from '../../utils/ipc';
 
 export const FolderCompareView: React.FC = () => {
-  const { getActiveTab, updateActiveTab, openFileCompareTab } = useTabStore();
+  const { getActiveTab, updateActiveTab, openFileCompareTab, changeFolderSide } = useTabStore();
+  const { selectedLeft, selectLeft, compareWithLeft, handleBatchCompare } = useQuickCompareStore();
   const activeTab = getActiveTab();
 
   const [filter, setFilter] = useState<'all' | FolderItemStatus>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [deepHash, setDeepHash] = useState(true);
+
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
+  const [rowContextMenu, setRowContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [pathContextMenu, setPathContextMenu] = useState<{ x: number; y: number; side: 'left' | 'right' } | null>(null);
+
+  const handleRowClick = (idx: number, e: React.MouseEvent) => {
+    if (e.metaKey || e.ctrlKey) {
+      setSelectedIndices((prev) => {
+        const next = new Set(prev);
+        if (next.has(idx)) next.delete(idx);
+        else next.add(idx);
+        return next;
+      });
+      setLastSelectedIndex(idx);
+    } else if (e.shiftKey && lastSelectedIndex !== null) {
+      const start = Math.min(lastSelectedIndex, idx);
+      const end = Math.max(lastSelectedIndex, idx);
+      const next = new Set(selectedIndices);
+      for (let i = start; i <= end; i++) {
+        next.add(i);
+      }
+      setSelectedIndices(next);
+    } else {
+      setSelectedIndices(new Set([idx]));
+      setLastSelectedIndex(idx);
+    }
+  };
+
+  const handleRowContextMenu = (idx: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!selectedIndices.has(idx)) {
+      setSelectedIndices(new Set([idx]));
+      setLastSelectedIndex(idx);
+    }
+    setRowContextMenu({ x: e.clientX, y: e.clientY });
+  };
 
   if (!activeTab || activeTab.type !== 'folder') return null;
 
@@ -199,12 +243,47 @@ export const FolderCompareView: React.FC = () => {
       </div>
 
       {/* Directory Paths Banner */}
-      <div className="bg-neutral-900/60 border-b border-neutral-800/80 px-3 py-1 flex items-center justify-between text-[11px] text-neutral-400 font-mono">
-        <div className="truncate flex-1">
-          <span className="text-neutral-500">Left:</span> {leftPath}
+      <div className="bg-neutral-900/60 border-b border-neutral-800/80 px-3 py-1 flex items-center justify-between text-[11px] text-neutral-400 font-mono shrink-0">
+        <div
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setPathContextMenu({ x: e.clientX, y: e.clientY, side: 'left' });
+          }}
+          className="truncate flex-1 flex items-center space-x-2"
+        >
+          <span className="text-neutral-500">Left:</span>
+          <span className="text-neutral-300 font-medium truncate" title={leftPath}>
+            {leftPath}
+          </span>
+          <button
+            onClick={() => changeFolderSide('left')}
+            title="Change Left Folder (Choose folder from disk)"
+            className="p-1 hover:bg-neutral-800 text-neutral-400 hover:text-emerald-400 rounded transition-colors shrink-0"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+          </button>
         </div>
-        <div className="truncate flex-1 text-right">
-          <span className="text-neutral-500">Right:</span> {rightPath}
+        <div className="hidden lg:flex items-center space-x-1 text-[10px] text-neutral-500 font-sans shrink-0 px-2 select-none">
+          <span>💡 Select multiple items & right-click to quick-compare</span>
+        </div>
+        <div
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setPathContextMenu({ x: e.clientX, y: e.clientY, side: 'right' });
+          }}
+          className="truncate flex-1 text-right flex items-center justify-end space-x-2"
+        >
+          <button
+            onClick={() => changeFolderSide('right')}
+            title="Change Right Folder (Choose folder from disk)"
+            className="p-1 hover:bg-neutral-800 text-neutral-400 hover:text-emerald-400 rounded transition-colors shrink-0"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+          </button>
+          <span className="text-neutral-300 font-medium truncate" title={rightPath}>
+            {rightPath}
+          </span>
+          <span className="text-neutral-500">:Right</span>
         </div>
       </div>
 
@@ -231,55 +310,179 @@ export const FolderCompareView: React.FC = () => {
                 </td>
               </tr>
             ) : (
-              entries.map((entry, idx) => (
-                <tr
-                  key={idx}
-                  onDoubleClick={() => handleOpenFileCompare(entry)}
-                  className="hover:bg-neutral-900/70 cursor-pointer transition-colors group"
-                >
-                  <td className="py-1.5 px-3">
-                    {entry.is_dir ? (
-                      <Folder className="w-3.5 h-3.5 text-amber-400" />
-                    ) : (
-                      <File className="w-3.5 h-3.5 text-neutral-400" />
-                    )}
-                  </td>
-                  <td className="py-1.5 px-3 text-neutral-200 truncate">
-                    <span className="font-semibold text-neutral-100">
-                      {entry.relative_path.split('/').pop()}
-                    </span>
-                    <span className="text-neutral-500 text-[11px] ml-2">
-                      {entry.relative_path}
-                    </span>
-                  </td>
-                  <td className="py-1.5 px-3">{getStatusBadge(entry.status)}</td>
-                  <td className="py-1.5 px-3 text-right text-neutral-400">
-                    {formatBytes(entry.left_size)}
-                  </td>
-                  <td className="py-1.5 px-3 text-right text-neutral-400">
-                    {formatBytes(entry.right_size)}
-                  </td>
-                  <td className="py-1.5 px-3 text-center">
-                    {!entry.is_dir && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenFileCompare(entry);
-                        }}
-                        title="Open comparison tab for this file"
-                        className="inline-flex items-center space-x-1 text-[11px] px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-300 hover:bg-sky-500/20 transition-colors"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                        <span>Diff Files</span>
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))
+              entries.map((entry, idx) => {
+                const isSelected = selectedIndices.has(idx);
+                return (
+                  <tr
+                    key={idx}
+                    onClick={(e) => handleRowClick(idx, e)}
+                    onContextMenu={(e) => handleRowContextMenu(idx, e)}
+                    onDoubleClick={() => handleOpenFileCompare(entry)}
+                    className={`cursor-pointer transition-colors group ${
+                      isSelected
+                        ? 'bg-neutral-800/90 text-neutral-100 ring-1 ring-emerald-500/50'
+                        : 'hover:bg-neutral-900/70'
+                    }`}
+                  >
+                    <td className="py-1.5 px-3">
+                      {entry.is_dir ? (
+                        <Folder className="w-3.5 h-3.5 text-amber-400" />
+                      ) : (
+                        <File className="w-3.5 h-3.5 text-neutral-400" />
+                      )}
+                    </td>
+                    <td className="py-1.5 px-3 text-neutral-200 truncate">
+                      <span className="font-semibold text-neutral-100">
+                        {entry.relative_path.split('/').pop()}
+                      </span>
+                      <span className="text-neutral-500 text-[11px] ml-2">
+                        {entry.relative_path}
+                      </span>
+                    </td>
+                    <td className="py-1.5 px-3">{getStatusBadge(entry.status)}</td>
+                    <td className="py-1.5 px-3 text-right text-neutral-400">
+                      {formatBytes(entry.left_size)}
+                    </td>
+                    <td className="py-1.5 px-3 text-right text-neutral-400">
+                      {formatBytes(entry.right_size)}
+                    </td>
+                    <td className="py-1.5 px-3 text-center">
+                      {!entry.is_dir && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenFileCompare(entry);
+                          }}
+                          title="Open comparison tab for this file"
+                          className="inline-flex items-center space-x-1 text-[11px] px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-300 hover:bg-sky-500/20 transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          <span>Diff Files</span>
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Context Menu for Table Rows */}
+      {rowContextMenu && selectedIndices.size > 0 && (
+        <ContextMenu
+          x={rowContextMenu.x}
+          y={rowContextMenu.y}
+          onClose={() => setRowContextMenu(null)}
+          items={
+            selectedIndices.size === 1
+              ? (() => {
+                  const singleIdx = Array.from(selectedIndices)[0];
+                  const entry = entries[singleIdx];
+                  if (!entry) return [];
+                  const fullLeft = `${leftPath}/${entry.relative_path}`;
+                  const fullRight = `${rightPath}/${entry.relative_path}`;
+                  const defaultPath = entry.status === 'OnlyInRight' ? fullRight : fullLeft;
+
+                  return [
+                    {
+                      label: 'Select as Left for Quick Compare',
+                      icon: <Check className="w-3.5 h-3.5 text-emerald-400" />,
+                      onClick: () => selectLeft(defaultPath, entry.is_dir),
+                    },
+                    ...(selectedLeft
+                      ? [
+                          {
+                            label: `Compare with Left (${selectedLeft.name})`,
+                            icon: <ArrowLeftRight className="w-3.5 h-3.5 text-emerald-400" />,
+                            onClick: () => compareWithLeft(defaultPath, entry.is_dir),
+                          },
+                        ]
+                      : []),
+                    ...(!entry.is_dir && entry.status !== 'OnlyInLeft' && entry.status !== 'OnlyInRight'
+                      ? [
+                          {
+                            label: 'Diff this File (Left ↔ Right)',
+                            icon: <ExternalLink className="w-3.5 h-3.5 text-sky-400" />,
+                            onClick: () => handleOpenFileCompare(entry),
+                          },
+                        ]
+                      : []),
+                    { divider: true },
+                    {
+                      label: 'Copy Relative Path',
+                      icon: <Copy className="w-3.5 h-3.5 text-neutral-400" />,
+                      onClick: () => navigator.clipboard.writeText(entry.relative_path),
+                    },
+                    {
+                      label: 'Copy Full Path',
+                      icon: <Copy className="w-3.5 h-3.5 text-neutral-400" />,
+                      onClick: () => navigator.clipboard.writeText(defaultPath),
+                    },
+                  ];
+                })()
+              : [
+                  {
+                    label: `Compare Selected Items (${selectedIndices.size})`,
+                    icon: <ArrowLeftRight className="w-3.5 h-3.5 text-emerald-400" />,
+                    onClick: () => {
+                      const selectedEntries = Array.from(selectedIndices)
+                        .map((i) => entries[i])
+                        .filter(Boolean);
+                      const paths = selectedEntries.map((e) =>
+                        e.status === 'OnlyInRight'
+                          ? `${rightPath}/${e.relative_path}`
+                          : `${leftPath}/${e.relative_path}`
+                      );
+                      handleBatchCompare(paths);
+                    },
+                  },
+                  { divider: true },
+                  {
+                    label: 'Deselect All',
+                    onClick: () => setSelectedIndices(new Set()),
+                  },
+                ]
+          }
+        />
+      )}
+
+      {/* Context Menu for Folder Paths Banner */}
+      {pathContextMenu && (
+        <ContextMenu
+          x={pathContextMenu.x}
+          y={pathContextMenu.y}
+          onClose={() => setPathContextMenu(null)}
+          items={[
+            {
+              label: `Change ${pathContextMenu.side === 'left' ? 'Left' : 'Right'} Folder...`,
+              icon: <FolderOpen className="w-3.5 h-3.5 text-emerald-400" />,
+              onClick: () => changeFolderSide(pathContextMenu.side),
+            },
+            {
+              label: 'Select as Left for Quick Compare',
+              icon: <Check className="w-3.5 h-3.5 text-emerald-400" />,
+              onClick: () => selectLeft(pathContextMenu.side === 'left' ? leftPath : rightPath, true),
+            },
+            ...(selectedLeft
+              ? [
+                  {
+                    label: `Compare with Left (${selectedLeft.name})`,
+                    icon: <ArrowLeftRight className="w-3.5 h-3.5 text-emerald-400" />,
+                    onClick: () => compareWithLeft(pathContextMenu.side === 'left' ? leftPath : rightPath, true),
+                  },
+                ]
+              : []),
+            { divider: true },
+            {
+              label: 'Copy Folder Path',
+              icon: <Copy className="w-3.5 h-3.5 text-neutral-400" />,
+              onClick: () => navigator.clipboard.writeText(pathContextMenu.side === 'left' ? leftPath : rightPath),
+            },
+          ]}
+        />
+      )}
     </div>
   );
 };
