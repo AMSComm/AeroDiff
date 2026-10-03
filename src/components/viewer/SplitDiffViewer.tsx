@@ -112,7 +112,7 @@ export const SplitDiffViewer: React.FC = () => {
     }
   }, []);
 
-  const isSyncingHorizontal = useRef(false);
+  const syncingSource = useRef<'left' | 'right' | null>(null);
   const [maxContentWidth, setMaxContentWidth] = useState<number | undefined>(undefined);
 
   // Sync scroll width between left and right panes
@@ -131,34 +131,55 @@ export const SplitDiffViewer: React.FC = () => {
   }, [totalLines, diffResult]);
 
   const handleLeftHorizontalScroll = useCallback(() => {
-    if (isSyncingHorizontal.current) return;
+    if (syncingSource.current === 'right') return;
     const left = leftContainerRef.current;
     const right = rightContainerRef.current;
     if (!left || !right) return;
 
-    if (Math.abs(right.scrollLeft - left.scrollLeft) > 1) {
-      isSyncingHorizontal.current = true;
-      right.scrollLeft = left.scrollLeft;
-      requestAnimationFrame(() => {
-        isSyncingHorizontal.current = false;
+    // Check if scroll widths need updating to avoid premature clamping
+    const leftW = left.scrollWidth;
+    const rightW = right.scrollWidth;
+    if (leftW > 0 && rightW > 0 && Math.abs(leftW - rightW) > 5) {
+      const maxW = Math.max(leftW, rightW);
+      if (maxW > (maxContentWidth || 0)) {
+        setMaxContentWidth(maxW);
+      }
+    }
+
+    const currentLeft = left.scrollLeft;
+    if (Math.abs(right.scrollLeft - currentLeft) >= 0.5) {
+      syncingSource.current = 'left';
+      right.scrollLeft = currentLeft;
+      queueMicrotask(() => {
+        syncingSource.current = null;
       });
     }
-  }, []);
+  }, [maxContentWidth]);
 
   const handleRightHorizontalScroll = useCallback(() => {
-    if (isSyncingHorizontal.current) return;
+    if (syncingSource.current === 'left') return;
     const left = leftContainerRef.current;
     const right = rightContainerRef.current;
     if (!left || !right) return;
 
-    if (Math.abs(left.scrollLeft - right.scrollLeft) > 1) {
-      isSyncingHorizontal.current = true;
-      left.scrollLeft = right.scrollLeft;
-      requestAnimationFrame(() => {
-        isSyncingHorizontal.current = false;
+    const leftW = left.scrollWidth;
+    const rightW = right.scrollWidth;
+    if (leftW > 0 && rightW > 0 && Math.abs(leftW - rightW) > 5) {
+      const maxW = Math.max(leftW, rightW);
+      if (maxW > (maxContentWidth || 0)) {
+        setMaxContentWidth(maxW);
+      }
+    }
+
+    const currentRight = right.scrollLeft;
+    if (Math.abs(left.scrollLeft - currentRight) >= 0.5) {
+      syncingSource.current = 'right';
+      left.scrollLeft = currentRight;
+      queueMicrotask(() => {
+        syncingSource.current = null;
       });
     }
-  }, []);
+  }, [maxContentWidth]);
 
   // Listen to wheel events on outer container to smoothly update shared scrollTop
   useEffect(() => {
@@ -166,7 +187,12 @@ export const SplitDiffViewer: React.FC = () => {
     if (!el) return;
 
     const handleWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) > 0) {
+      const absX = Math.abs(e.deltaX);
+      const absY = Math.abs(e.deltaY);
+
+      // Only intercept for vertical scroll if vertical motion is dominant!
+      // This prevents swallowing or cancelling trackpad horizontal swipe gestures.
+      if (absY > 0 && absY >= absX) {
         const totalSize = rowVirtualizer.getTotalSize();
         const maxScroll = Math.max(0, totalSize - el.clientHeight);
         if (maxScroll > 0) {
@@ -179,9 +205,10 @@ export const SplitDiffViewer: React.FC = () => {
             return next;
           });
         }
-      } else if (Math.abs(e.deltaX) > 0) {
+      } else if (absX > 0 && absX > absY) {
         const target = e.target as HTMLElement | null;
         if (target && gutterContainerRef.current?.contains(target)) {
+          e.preventDefault();
           if (leftContainerRef.current && rightContainerRef.current) {
             leftContainerRef.current.scrollLeft += e.deltaX;
             rightContainerRef.current.scrollLeft += e.deltaX;
@@ -481,8 +508,9 @@ export const SplitDiffViewer: React.FC = () => {
           {/* === LEFT PANE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
           <div
             ref={leftContainerRef}
+            data-testid="split-left-container"
             onScroll={handleLeftHorizontalScroll}
-            className="flex-1 overflow-x-auto overflow-y-hidden border-r border-neutral-800"
+            className="flex-1 overflow-x-auto overflow-y-hidden border-r border-neutral-800 overscroll-x-none"
           >
             <div
               style={{
@@ -658,8 +686,9 @@ export const SplitDiffViewer: React.FC = () => {
           {/* === RIGHT PANE CONTAINER (SCROLLABLE X, Y LOCKED TO MASTER) === */}
           <div
             ref={rightContainerRef}
+            data-testid="split-right-container"
             onScroll={handleRightHorizontalScroll}
-            className="flex-1 overflow-x-auto overflow-y-hidden"
+            className="flex-1 overflow-x-auto overflow-y-hidden overscroll-x-none"
           >
             <div
               style={{

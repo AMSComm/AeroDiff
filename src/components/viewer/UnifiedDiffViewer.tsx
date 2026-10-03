@@ -82,7 +82,11 @@ export const UnifiedDiffViewer: React.FC = () => {
     if (!el) return;
 
     const handleWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) > 0) {
+      const absX = Math.abs(e.deltaX);
+      const absY = Math.abs(e.deltaY);
+
+      // Only intercept for vertical scroll if vertical motion is dominant
+      if (absY > 0 && absY >= absX) {
         const totalSize = rowVirtualizer.getTotalSize();
         const maxScroll = Math.max(0, totalSize - el.clientHeight);
         if (maxScroll > 0) {
@@ -307,7 +311,7 @@ export const UnifiedDiffViewer: React.FC = () => {
       <div ref={parentContainerRef} className="flex-1 flex overflow-hidden relative">
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-x-auto overflow-y-hidden"
+          className="flex-1 overflow-x-auto overflow-y-hidden overscroll-x-none"
         >
           {activeTab?.diffError && (
             <div className="p-6 flex flex-col items-center justify-center text-center">
