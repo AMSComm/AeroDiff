@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.1.5] - 2026-10-03
+
+### 🖱️ Scrolling, Diff Seeking & Table Navigation Fixes
+- **Top Viewport Diff Alignment**: Diff seek in both Text and CSV Table modes now aligns the first difference line/row directly to the top edge of the viewport (`targetLine * 20` for text, `lineIdx * 26` for table) rather than centering it in the middle of the screen.
+- **Mac Trackpad Table Scrolling**: Fixed non-functional two-finger vertical scrolling in CSV Table mode on macOS by attaching a non-passive wheel event listener to the outer persistent container to scroll left, right, and gutter containers in 60fps synchronous lockstep.
+- **Table Cell Selection & Keyboard Navigation**: Implemented spreadsheet-like cell selection in CSV Table mode. Click any cell to select with an Emerald highlight ring (`ring-2 ring-emerald-400`); navigate seamlessly between cells, columns, and sides using `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Tab`, `Shift+Tab`; auto-scroll viewport horizontally and vertically to keep selected cells visible (`scrollCellIntoView`); press `Enter` or `F2` to edit and `Escape` to deselect.
+- **Master Vertical Scrollbar Drag Stability**: Resolved an issue where dragging the scrollbar thumb downwards caused it to jump back up. Stabilized thumb coordinates during active drag with dedicated position tracking (`dragThumbTop`), decoupling drag interactions from asynchronous slice loading and hook dependencies.
+- **Automated Playwright Verification**: Added dedicated Playwright E2E verification test suite (`scripts/test-scroll-fixes.mjs`) confirming top seek positioning, trackpad wheel scrolling, keyboard cell selection navigation, and scrollbar drag stability.
+
+---
+
 ## [v0.1.4] - 2026-10-03
 
 ### 🐛 Critical Packaging & Startup Fix
