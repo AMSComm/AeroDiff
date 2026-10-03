@@ -259,7 +259,7 @@ export const FileCompareView: React.FC = () => {
           {/* Diff Navigation Buttons */}
           <div className="flex items-center bg-neutral-950 p-0.5 rounded border border-neutral-800">
             <button
-              onClick={prevChunk}
+              onClick={() => prevChunk()}
               disabled={totalChunks === 0}
               title="Previous difference (Shift+F7)"
               className="p-1 rounded text-neutral-300 hover:text-white hover:bg-neutral-800 disabled:opacity-30 transition-colors"
@@ -270,7 +270,7 @@ export const FileCompareView: React.FC = () => {
               {totalChunks > 0 ? `${activeChunkIndex + 1}/${totalChunks}` : '0'}
             </span>
             <button
-              onClick={nextChunk}
+              onClick={() => nextChunk()}
               disabled={totalChunks === 0}
               title="Next difference (F7)"
               className="p-1 rounded text-neutral-300 hover:text-white hover:bg-neutral-800 disabled:opacity-30 transition-colors"

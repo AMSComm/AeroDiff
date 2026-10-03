@@ -179,4 +179,98 @@ describe('useTabStore Unit Tests', () => {
     store.undoAction();
     expect(useTabStore.getState().getActiveTab()?.leftContent).toBe('line 1\nline 2 updated\nline 3');
   });
+
+  it('should navigate chunks position-aware relative to current viewport line (row 500, 7000, 20000)', () => {
+    const store = useTabStore.getState();
+    store.updateActiveTab({
+      diffResult: {
+        total_left_lines: 25000,
+        total_right_lines: 25000,
+        added_chunks: 0,
+        deleted_chunks: 0,
+        modified_chunks: 3,
+        is_identical: false,
+        hash_matched: false,
+        lines: [],
+        chunks: [
+          {
+            chunk_id: 1,
+            left_start: 501,
+            left_count: 5,
+            right_start: 501,
+            right_count: 5,
+            chunk_type: 'Modification',
+            left_lines: [],
+            right_lines: [],
+          },
+          {
+            chunk_id: 2,
+            left_start: 7001,
+            left_count: 5,
+            right_start: 7001,
+            right_count: 5,
+            chunk_type: 'Modification',
+            left_lines: [],
+            right_lines: [],
+          },
+          {
+            chunk_id: 3,
+            left_start: 20001,
+            left_count: 5,
+            right_start: 20001,
+            right_count: 5,
+            chunk_type: 'Modification',
+            left_lines: [],
+            right_lines: [],
+          },
+        ],
+      },
+      activeChunkIndex: 0,
+      chunkJumpNonce: 0,
+    });
+
+    // 1. When user is at row 10000:
+    // Next chunk should be chunk 2 (row 20000)
+    store.nextChunk(10000);
+    expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(2);
+    expect(useTabStore.getState().getActiveTab()?.chunkJumpNonce).toBe(1);
+
+    // Prev chunk from row 10000 should be chunk 1 (row 7000)
+    store.prevChunk(10000);
+    expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(1);
+    expect(useTabStore.getState().getActiveTab()?.chunkJumpNonce).toBe(2);
+
+    // 2. When user is at row 7000 (chunk 1):
+    // Next chunk should be chunk 2 (row 20000)
+    store.nextChunk(7000);
+    expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(2);
+
+    // Prev chunk from row 7000 should be chunk 0 (row 500)
+    store.prevChunk(7000);
+    expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(0);
+
+    // 3. Wrap around:
+    // Prev chunk from row 500 wraps to chunk 2 (row 20000)
+    store.prevChunk(500);
+    expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(2);
+
+    // Next chunk from row 20000 wraps to chunk 0 (row 500)
+    store.nextChunk(20000);
+    expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(0);
+
+    // 4. Passive scroll synchronization (updates activeChunkIndex WITHOUT incrementing chunkJumpNonce)
+    const nonceBefore = useTabStore.getState().getActiveTab()?.chunkJumpNonce;
+
+    store.syncActiveChunkFromLine(10000);
+    expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(1);
+    expect(useTabStore.getState().getActiveTab()?.chunkJumpNonce).toBe(nonceBefore); // NO nonce change!
+
+    store.syncActiveChunkFromLine(22000);
+    expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(2);
+    expect(useTabStore.getState().getActiveTab()?.chunkJumpNonce).toBe(nonceBefore); // NO nonce change!
+
+    store.syncActiveChunkFromLine(100);
+    expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(0);
+    expect(useTabStore.getState().getActiveTab()?.chunkJumpNonce).toBe(nonceBefore); // NO nonce change!
+  });
 });

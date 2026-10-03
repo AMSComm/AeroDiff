@@ -77,9 +77,26 @@ interface TabState {
   redoAction: () => void;
   saveLeftFile: () => Promise<boolean>;
   saveRightFile: () => Promise<boolean>;
-  nextChunk: () => void;
-  prevChunk: () => void;
+  jumpToChunk: (index: number) => void;
+  nextChunk: (fromLine?: number) => void;
+  prevChunk: (fromLine?: number) => void;
+  syncActiveChunkFromLine: (currentLine: number) => void;
 }
+
+let activeScrollLineGetter: (() => number) | null = null;
+
+export const registerScrollLineGetter = (getter: () => number) => {
+  activeScrollLineGetter = getter;
+  return () => {
+    if (activeScrollLineGetter === getter) {
+      activeScrollLineGetter = null;
+    }
+  };
+};
+
+export const getActiveScrollLine = (): number | undefined => {
+  return activeScrollLineGetter ? activeScrollLineGetter() : undefined;
+};
 
 const DEFAULT_OPTIONS: DiffOptions = {
   ignore_whitespace: 'None',
@@ -114,6 +131,7 @@ const createDefaultSession = (type: TabType = 'welcome', initial?: Partial<TabSe
     csvResult: null,
     options: { ...savedPrefs.options },
     activeChunkIndex: 0,
+    chunkJumpNonce: 0,
     history: [],
     future: [],
     isDirtyLeft: false,
@@ -604,6 +622,7 @@ export const useTabStore = create<TabState>((set, get) => ({
         isComputing: false,
         computeTimeMs: duration,
         activeChunkIndex: 0,
+        chunkJumpNonce: 0,
         diffError: null,
       });
     } catch (err: any) {
@@ -758,18 +777,79 @@ export const useTabStore = create<TabState>((set, get) => ({
     }
   },
 
-  nextChunk: () => {
+  jumpToChunk: (index: number) => {
     const active = get().getActiveTab();
     if (!active || !active.diffResult || active.diffResult.chunks.length === 0) return;
-    const next = (active.activeChunkIndex + 1) % active.diffResult.chunks.length;
-    get().updateActiveTab({ activeChunkIndex: next });
+    const clamped = Math.max(0, Math.min(index, active.diffResult.chunks.length - 1));
+    get().updateActiveTab({
+      activeChunkIndex: clamped,
+      chunkJumpNonce: (active.chunkJumpNonce || 0) + 1,
+    });
   },
 
-  prevChunk: () => {
+  nextChunk: (fromLine?: number) => {
     const active = get().getActiveTab();
     if (!active || !active.diffResult || active.diffResult.chunks.length === 0) return;
-    const prev =
-      (active.activeChunkIndex - 1 + active.diffResult.chunks.length) % active.diffResult.chunks.length;
-    get().updateActiveTab({ activeChunkIndex: prev });
+    const chunks = active.diffResult.chunks;
+    const currentLine = typeof fromLine === 'number' ? fromLine : getActiveScrollLine();
+
+    let targetIndex: number;
+    if (currentLine !== undefined) {
+      const TOLERANCE = 2;
+      const foundIdx = chunks.findIndex((c) => {
+        const line = Math.max(0, (c.left_start || c.right_start) - 1);
+        return line > currentLine + TOLERANCE;
+      });
+      targetIndex = foundIdx !== -1 ? foundIdx : 0;
+    } else {
+      targetIndex = (active.activeChunkIndex + 1) % chunks.length;
+    }
+
+    get().jumpToChunk(targetIndex);
+  },
+
+  prevChunk: (fromLine?: number) => {
+    const active = get().getActiveTab();
+    if (!active || !active.diffResult || active.diffResult.chunks.length === 0) return;
+    const chunks = active.diffResult.chunks;
+    const currentLine = typeof fromLine === 'number' ? fromLine : getActiveScrollLine();
+
+    let targetIndex: number;
+    if (currentLine !== undefined) {
+      const TOLERANCE = 2;
+      let foundIdx = -1;
+      for (let i = chunks.length - 1; i >= 0; i--) {
+        const line = Math.max(0, (chunks[i].left_start || chunks[i].right_start) - 1);
+        if (line < currentLine - TOLERANCE) {
+          foundIdx = i;
+          break;
+        }
+      }
+      targetIndex = foundIdx !== -1 ? foundIdx : chunks.length - 1;
+    } else {
+      targetIndex =
+        (active.activeChunkIndex - 1 + chunks.length) % chunks.length;
+    }
+
+    get().jumpToChunk(targetIndex);
+  },
+
+  syncActiveChunkFromLine: (currentLine: number) => {
+    const active = get().getActiveTab();
+    if (!active || !active.diffResult || active.diffResult.chunks.length === 0) return;
+    const chunks = active.diffResult.chunks;
+
+    let activeIdx = 0;
+    for (let i = chunks.length - 1; i >= 0; i--) {
+      const line = Math.max(0, (chunks[i].left_start || chunks[i].right_start) - 1);
+      if (line <= currentLine) {
+        activeIdx = i;
+        break;
+      }
+    }
+
+    if (active.activeChunkIndex !== activeIdx) {
+      get().updateActiveTab({ activeChunkIndex: activeIdx });
+    }
   },
 }));

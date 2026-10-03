@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { CheckCircle2, ArrowRight, ArrowLeft } from 'lucide-react';
-import { useTabStore } from '../../stores/tabStore';
+import { registerScrollLineGetter, useTabStore } from '../../stores/tabStore';
 import { DiffOptions } from '../../types/diff';
 import { MasterVerticalScrollbar } from '../viewer/MasterVerticalScrollbar';
 import { useDiffSessionLines } from '../../hooks/useDiffSessionLines';
@@ -69,7 +69,7 @@ export const CsvCompareView: React.FC = () => {
   const activeTab = useTabStore(
     (state) => state.tabs.find((t) => t.id === state.activeTabId) || state.tabs[0]
   );
-  const { mergeChunkAction, setLeftContent, setRightContent } = useTabStore();
+  const { mergeChunkAction, setLeftContent, setRightContent, syncActiveChunkFromLine } = useTabStore();
 
   const parentContainerRef = useRef<HTMLDivElement>(null);
   const leftContainerRef = useRef<HTMLDivElement>(null);
@@ -77,6 +77,16 @@ export const CsvCompareView: React.FC = () => {
   const gutterContainerRef = useRef<HTMLDivElement>(null);
 
   const [scrollTop, setScrollTop] = useState(0);
+  const scrollTopRef = useRef(0);
+  scrollTopRef.current = scrollTop;
+
+  useEffect(() => {
+    return registerScrollLineGetter(() => Math.floor(scrollTopRef.current / 26));
+  }, []);
+
+  useEffect(() => {
+    syncActiveChunkFromLine(Math.floor(scrollTop / 26));
+  }, [scrollTop, syncActiveChunkFromLine]);
   const [viewportHeight, setViewportHeight] = useState(600);
 
   // Inline cell edit state
@@ -328,13 +338,16 @@ export const CsvCompareView: React.FC = () => {
     [colWidth, viewportHeight]
   );
 
-  const prevChunkIndexRef = useRef<number | null>(null);
+  const lastJumpNonceRef = useRef<number | null>(null);
+  const lastHorizontalSnapNonceRef = useRef<number | null>(null);
 
   // Jump to active chunk when navigation buttons clicked & auto-scroll horizontal to changed column
   useEffect(() => {
     if (diffResult && diffResult.chunks.length > 0) {
-      if (prevChunkIndexRef.current === activeChunkIndex) return;
-      prevChunkIndexRef.current = activeChunkIndex;
+      const currentNonce = activeTab?.chunkJumpNonce ?? 0;
+      if (lastJumpNonceRef.current === currentNonce) return;
+      lastJumpNonceRef.current = currentNonce;
+      lastHorizontalSnapNonceRef.current = currentNonce;
 
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (activeChunk) {
@@ -348,6 +361,7 @@ export const CsvCompareView: React.FC = () => {
 
         const line = getLine(lineIdx);
         if (line) {
+          lastHorizontalSnapNonceRef.current = null;
           const leftCells = line.left_text !== null ? splitCsvCells(line.left_text, delimiter) : null;
           const rightCells = line.right_text !== null ? splitCsvCells(line.right_text, delimiter) : null;
           if (leftCells && rightCells) {
@@ -364,6 +378,7 @@ export const CsvCompareView: React.FC = () => {
       }
     }
   }, [
+    activeTab?.chunkJumpNonce,
     activeChunkIndex,
     diffResult,
     applyScrollTop,
@@ -377,12 +392,16 @@ export const CsvCompareView: React.FC = () => {
 
   // When lineMap receives the activeChunk line, snap horizontally to changed column
   useEffect(() => {
+    const currentNonce = activeTab?.chunkJumpNonce ?? 0;
+    if (lastHorizontalSnapNonceRef.current !== currentNonce) return;
+
     if (diffResult && diffResult.chunks.length > 0) {
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (!activeChunk) return;
       const lineIdx = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
       const line = getLine(lineIdx);
       if (line) {
+        lastHorizontalSnapNonceRef.current = null;
         const leftCells = line.left_text !== null ? splitCsvCells(line.left_text, delimiter) : null;
         const rightCells = line.right_text !== null ? splitCsvCells(line.right_text, delimiter) : null;
         if (leftCells && rightCells) {
@@ -397,7 +416,7 @@ export const CsvCompareView: React.FC = () => {
         }
       }
     }
-  }, [activeChunkIndex, lineMap, getLine, delimiter, maxCols, options, scrollToColumn, diffResult]);
+  }, [activeTab?.chunkJumpNonce, activeChunkIndex, lineMap, getLine, delimiter, maxCols, options, scrollToColumn, diffResult]);
 
   // Cell edit trigger
   const startEditing = useCallback(

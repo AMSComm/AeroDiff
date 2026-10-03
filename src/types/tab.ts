@@ -29,6 +29,7 @@ export interface TabSession {
   csvResult: CsvCompareResult | null;
   options: DiffOptions;
   activeChunkIndex: number;
+  chunkJumpNonce?: number;
   history: HistorySnapshot[];
   future: HistorySnapshot[];
   isDirtyLeft: boolean;

@@ -136,24 +136,38 @@ async function runTest() {
     console.log('   ✅ Keyboard arrow navigation works!');
 
     // 4. Test Seek to Top
-    console.log('4️⃣ Testing Seek to next diff chunk 1 (must align to top of viewport: lineIdx * 26 = 50 * 26 = 1300)...');
+    console.log('4️⃣ Testing Seek to diff chunks (must align directly to top of viewport)...');
+    // First seek from line 0 -> jumps to chunk 0 at line 10 (10 * 26 = 260px)
     await page.evaluate(() => {
-      const state = window.__TAB_STORE__ ? window.__TAB_STORE__.getState() : null;
-      if (state) {
-        state.nextChunk();
-      }
+      window.__TAB_STORE__.getState().nextChunk();
     });
     await page.waitForTimeout(400);
 
-    const scrollPos = await page.evaluate(() => {
+    let scrollPos = await page.evaluate(() => {
       const right = document.querySelector('[data-testid="csv-right-container"]');
       return right ? right.scrollTop : 0;
     });
-    console.log(`   Scroll position after seek: ${scrollPos}px (Expected 1300px for top alignment)`);
+    console.log(`   Scroll position after seek to chunk 0: ${scrollPos}px (Expected 260px)`);
+    if (Math.abs(scrollPos - 260) > 30) {
+      throw new Error(`Seek to chunk 0 did not align to top! Expected ~260px, got ${scrollPos}px`);
+    }
+    console.log('   ✅ Chunk 0 top alignment verified (260px)!');
+
+    // Second seek from chunk 0 -> jumps to chunk 1 at line 50 (50 * 26 = 1300px)
+    await page.evaluate(() => {
+      window.__TAB_STORE__.getState().nextChunk();
+    });
+    await page.waitForTimeout(400);
+
+    scrollPos = await page.evaluate(() => {
+      const right = document.querySelector('[data-testid="csv-right-container"]');
+      return right ? right.scrollTop : 0;
+    });
+    console.log(`   Scroll position after seek to chunk 1: ${scrollPos}px (Expected 1300px)`);
     if (Math.abs(scrollPos - 1300) > 30) {
-      throw new Error(`Seek did not align to top! Expected ~1300px, got ${scrollPos}px`);
+      throw new Error(`Seek to chunk 1 did not align to top! Expected ~1300px, got ${scrollPos}px`);
     } else {
-      console.log('   ✅ Top alignment verified! (Diff row is positioned directly at the top of the viewport)');
+      console.log('   ✅ Chunk 1 top alignment verified (1300px)!');
     }
 
     // 5. Test Trackpad Wheel on table
@@ -199,7 +213,112 @@ async function runTest() {
     await page.mouse.up();
     console.log('   ✅ Master Scrollbar drag stability verified (no jumping back up)!');
 
-    console.log('\n🎉 ALL 4 USER FIXES VERIFIED AND PASSED WITH 100% SUCCESS!');
+    // 7. Test Position-Aware Diff Navigation (500, 7000, 20000)
+    console.log('7️⃣ Testing Position-Aware Diff Navigation (chunks at row 500, 7000, 20000)...');
+    await page.evaluate(() => {
+      const state = window.__TAB_STORE__ ? window.__TAB_STORE__.getState() : null;
+      if (state) {
+        state.updateActiveTab({
+          diffResult: {
+            is_identical: false,
+            total_virtual_lines: 25000,
+            stats: { additions: 0, deletions: 0, modifications: 3, equal: 24997 },
+            chunks: [
+              {
+                chunk_id: 1,
+                chunk_type: 'Modified',
+                left_start: 501,
+                left_count: 1,
+                right_start: 501,
+                right_count: 1,
+              },
+              {
+                chunk_id: 2,
+                chunk_type: 'Modified',
+                left_start: 7001,
+                left_count: 1,
+                right_start: 7001,
+                right_count: 1,
+              },
+              {
+                chunk_id: 3,
+                chunk_type: 'Modified',
+                left_start: 20001,
+                left_count: 1,
+                right_start: 20001,
+                right_count: 1,
+              },
+            ],
+            lines: [],
+          },
+          activeChunkIndex: 0,
+          chunkJumpNonce: 0,
+        });
+      }
+    });
+    await page.waitForTimeout(300);
+
+    // Test prevChunk from row 10000
+    console.log('   Triggering prevChunk(10000) -> Expected target: row 7000 (182000px, chunk 1)...');
+    await page.evaluate(() => {
+      window.__TAB_STORE__.getState().prevChunk(10000);
+    });
+    await page.waitForTimeout(400);
+
+    let scrollPosTarget = await page.evaluate(() => {
+      const right = document.querySelector('[data-testid="csv-right-container"]');
+      return right ? right.scrollTop : 0;
+    });
+    let activeChunk = await page.evaluate(() => {
+      return window.__TAB_STORE__.getState().getActiveTab()?.activeChunkIndex;
+    });
+    console.log(`   Scroll position after prevChunk(10000): ${scrollPosTarget}px (Expected: 182000px), activeChunkIndex: ${activeChunk}`);
+    if (Math.abs(scrollPosTarget - 7000 * 26) > 50 || activeChunk !== 1) {
+      throw new Error(`prevChunk(10000) failed! Expected 182000px and index 1, got ${scrollPosTarget}px, index ${activeChunk}`);
+    }
+    console.log('   ✅ prevChunk from row 10000 jumped back to row 7000 (chunk 1)!');
+
+    // Test nextChunk from row 10000
+    console.log('   Triggering nextChunk(10000) -> Expected target: row 20000 (520000px, chunk 2)...');
+    await page.evaluate(() => {
+      window.__TAB_STORE__.getState().nextChunk(10000);
+    });
+    await page.waitForTimeout(400);
+
+    scrollPosTarget = await page.evaluate(() => {
+      const right = document.querySelector('[data-testid="csv-right-container"]');
+      return right ? right.scrollTop : 0;
+    });
+    activeChunk = await page.evaluate(() => {
+      return window.__TAB_STORE__.getState().getActiveTab()?.activeChunkIndex;
+    });
+    console.log(`   Scroll position after nextChunk(10000): ${scrollPosTarget}px (Expected: 520000px), activeChunkIndex: ${activeChunk}`);
+    if (Math.abs(scrollPosTarget - 20000 * 26) > 50 || activeChunk !== 2) {
+      throw new Error(`nextChunk(10000) failed! Expected 520000px and index 2, got ${scrollPosTarget}px, index ${activeChunk}`);
+    }
+    console.log('   ✅ nextChunk from row 10000 jumped forward to row 20000 (chunk 2)!');
+
+    // Test wrap arounds
+    console.log('   Testing wrap around: nextChunk from row 20000 -> row 500 (13000px, chunk 0)...');
+    await page.evaluate(() => {
+      window.__TAB_STORE__.getState().nextChunk(20000);
+    });
+    await page.waitForTimeout(400);
+
+    scrollPosTarget = await page.evaluate(() => {
+      const right = document.querySelector('[data-testid="csv-right-container"]');
+      return right ? right.scrollTop : 0;
+    });
+    activeChunk = await page.evaluate(() => {
+      return window.__TAB_STORE__.getState().getActiveTab()?.activeChunkIndex;
+    });
+    console.log(`   Scroll position after wrap: ${scrollPosTarget}px (Expected: 13000px), activeChunkIndex: ${activeChunk}`);
+    if (Math.abs(scrollPosTarget - 500 * 26) > 50 || activeChunk !== 0) {
+      throw new Error(`wrap around failed! Expected 13000px and index 0, got ${scrollPosTarget}px, index ${activeChunk}`);
+    }
+    console.log('   ✅ Wrap around forward to row 500 verified!');
+
+    console.log('\n🎉 ALL FIXES AND SCENARIOS VERIFIED AND PASSED WITH 100% SUCCESS!');
     await browser.close();
   } finally {
     viteServer.kill();

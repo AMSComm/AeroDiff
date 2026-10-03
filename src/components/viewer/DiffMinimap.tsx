@@ -2,14 +2,10 @@ import React, { useMemo } from 'react';
 import { useTabStore } from '../../stores/tabStore';
 
 export const DiffMinimap: React.FC = () => {
-  const { getActiveTab, updateActiveTab } = useTabStore();
+  const { getActiveTab, jumpToChunk } = useTabStore();
   const activeTab = getActiveTab();
   const diffResult = activeTab?.diffResult;
   const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
-
-  const jumpToChunk = (index: number) => {
-    updateActiveTab({ activeChunkIndex: index });
-  };
 
   const lines = diffResult?.lines;
   const chunks = diffResult?.chunks;

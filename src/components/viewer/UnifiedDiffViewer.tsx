@@ -1,13 +1,13 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
-import { useTabStore } from '../../stores/tabStore';
+import { registerScrollLineGetter, useTabStore } from '../../stores/tabStore';
 import { InlineSpan } from '../../types/diff';
 import { MasterVerticalScrollbar } from './MasterVerticalScrollbar';
 import { useDiffSessionLines } from '../../hooks/useDiffSessionLines';
 
 export const UnifiedDiffViewer: React.FC = () => {
-  const { getActiveTab, updateLineContent } = useTabStore();
+  const { getActiveTab, updateLineContent, syncActiveChunkFromLine } = useTabStore();
   const activeTab = getActiveTab();
   const diffResult = activeTab?.diffResult;
   const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
@@ -17,6 +17,16 @@ export const UnifiedDiffViewer: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [scrollTop, setScrollTop] = useState(0);
+  const scrollTopRef = useRef(0);
+  scrollTopRef.current = scrollTop;
+
+  useEffect(() => {
+    return registerScrollLineGetter(() => Math.floor(scrollTopRef.current / 20));
+  }, []);
+
+  useEffect(() => {
+    syncActiveChunkFromLine(Math.floor(scrollTop / 20));
+  }, [scrollTop, syncActiveChunkFromLine]);
   const [viewportHeight, setViewportHeight] = useState(600);
   const [editingLine, setEditingLine] = useState<{
     side: 'left' | 'right';
@@ -90,13 +100,16 @@ export const UnifiedDiffViewer: React.FC = () => {
     return () => el.removeEventListener('wheel', handleWheel);
   }, [rowVirtualizer, totalLines]);
 
-  const prevChunkIndexRef = useRef<number | null>(null);
+  const lastJumpNonceRef = useRef<number | null>(null);
+  const lastHorizontalSnapNonceRef = useRef<number | null>(null);
 
-  // Scroll to active chunk when activeChunkIndex changes & snap horizontally to diff
+  // Scroll to active chunk when chunkJumpNonce changes & snap horizontally to diff
   useEffect(() => {
     if (diffResult && diffResult.chunks.length > 0) {
-      if (prevChunkIndexRef.current === activeChunkIndex) return;
-      prevChunkIndexRef.current = activeChunkIndex;
+      const currentNonce = activeTab?.chunkJumpNonce ?? 0;
+      if (lastJumpNonceRef.current === currentNonce) return;
+      lastJumpNonceRef.current = currentNonce;
+      lastHorizontalSnapNonceRef.current = currentNonce;
 
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (activeChunk) {
@@ -110,6 +123,7 @@ export const UnifiedDiffViewer: React.FC = () => {
 
         const line = getLine(targetLine);
         if (line) {
+          lastHorizontalSnapNonceRef.current = null;
           const firstSpan =
             line.left_inline?.find((s) => s.highlight) || line.right_inline?.find((s) => s.highlight);
           if (firstSpan && firstSpan.start > 15) {
@@ -119,16 +133,20 @@ export const UnifiedDiffViewer: React.FC = () => {
         }
       }
     }
-  }, [activeChunkIndex, diffResult, applyScrollTop, requestRange, getLine]);
+  }, [activeTab?.chunkJumpNonce, activeChunkIndex, diffResult, applyScrollTop, requestRange, getLine]);
 
   // When line loads in lineMap, snap horizontally to diff characters if needed
   useEffect(() => {
+    const currentNonce = activeTab?.chunkJumpNonce ?? 0;
+    if (lastHorizontalSnapNonceRef.current !== currentNonce) return;
+
     if (diffResult && diffResult.chunks.length > 0) {
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (!activeChunk) return;
       const targetLine = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
       const line = getLine(targetLine);
       if (line) {
+        lastHorizontalSnapNonceRef.current = null;
         const firstSpan =
           line.left_inline?.find((s) => s.highlight) || line.right_inline?.find((s) => s.highlight);
         if (firstSpan && firstSpan.start > 15) {
@@ -147,7 +165,7 @@ export const UnifiedDiffViewer: React.FC = () => {
         }
       }
     }
-  }, [activeChunkIndex, lineMap, getLine, diffResult]);
+  }, [activeTab?.chunkJumpNonce, activeChunkIndex, lineMap, getLine, diffResult]);
 
   useEffect(() => {
     if (editingLine && inputRef.current) {
