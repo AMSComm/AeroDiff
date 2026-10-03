@@ -155,6 +155,15 @@ export const CsvCompareView: React.FC = () => {
     }
   }, [virtualItems, requestRange]);
 
+  // Proactively pre-fetch first diff chunk on load so changed columns bar is immediately populated
+  useEffect(() => {
+    if (diffResult && diffResult.chunks.length > 0) {
+      const firstChunk = diffResult.chunks[0];
+      const lineIdx = Math.max(0, (firstChunk.left_start || firstChunk.right_start) - 1);
+      requestRange(lineIdx, lineIdx + 5);
+    }
+  }, [diffResult, requestRange]);
+
   // Track parent viewport height
   useEffect(() => {
     const el = parentContainerRef.current;
