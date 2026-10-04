@@ -85,7 +85,7 @@ jobs:
             - 📦 Multi-platform native installers for macOS, Windows, and Linux.
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }}
+          args: --ignore-version-mismatches ${{ matrix.args }}
 
   publish-release:
     name: Publish Release & Sync Notes
