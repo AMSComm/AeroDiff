@@ -100,10 +100,23 @@ export const FolderCompareView: React.FC = () => {
   const entries = useMemo(() => {
     const list = folderResult?.entries || [];
     const query = searchQuery.trim().toLowerCase();
-    return list.filter((e) => {
+    const filtered = list.filter((e) => {
       if (filter !== 'all' && e.status !== filter) return false;
       if (query && !e.relative_path.toLowerCase().includes(query)) return false;
       return true;
+    });
+
+    const statusPriority: Record<FolderItemStatus, number> = {
+      Modified: 0,
+      OnlyInLeft: 1,
+      OnlyInRight: 2,
+      Identical: 3,
+    };
+
+    return [...filtered].sort((a, b) => {
+      const pDiff = statusPriority[a.status] - statusPriority[b.status];
+      if (pDiff !== 0) return pDiff;
+      return a.relative_path.localeCompare(b.relative_path);
     });
   }, [folderResult?.entries, filter, searchQuery]);
 
