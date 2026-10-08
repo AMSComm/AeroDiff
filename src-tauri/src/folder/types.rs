@@ -27,3 +27,13 @@ pub struct FolderCompareResult {
     pub total_only_left: usize,
     pub total_only_right: usize,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderProgressPayload {
+    pub stage: String,
+    pub left_scanned: usize,
+    pub right_scanned: usize,
+    pub compared: usize,
+    pub total: usize,
+    pub message: String,
+}

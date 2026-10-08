@@ -370,7 +370,6 @@ export const useTabStore = create<TabState>((set, get) => ({
         console.error('Failed to compare folders:', e);
         const errMsg = e?.message || String(e);
         get().updateActiveTab({ isComputing: false, diffError: errMsg });
-        throw new Error(errMsg);
       }
       return;
     }

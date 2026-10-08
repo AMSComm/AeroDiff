@@ -1,11 +1,15 @@
-use super::types::{FolderCompareResult, FolderEntry, FolderItemStatus};
+use super::types::{FolderCompareResult, FolderEntry, FolderItemStatus, FolderProgressPayload};
 use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
+
+pub const MAX_FOLDER_ITEMS: usize = 250_000;
 
 struct FileMeta {
     is_dir: bool,
@@ -43,13 +47,17 @@ fn files_identical(left: &Path, right: &Path, size: u64) -> bool {
     }
 }
 
-fn scan_dir<P: AsRef<Path>>(root: P) -> Vec<(String, FileMeta)> {
+fn scan_dir<P: AsRef<Path>, F: Fn(usize) + Send + Sync>(
+    root: P,
+    on_progress: &F,
+) -> Result<Vec<(String, FileMeta)>, String> {
     let root_path = root.as_ref();
     if !root_path.exists() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let mut list = Vec::with_capacity(4096);
+    let mut count = 0;
 
     for entry in WalkDir::new(root_path)
         .min_depth(1)
@@ -60,6 +68,19 @@ fn scan_dir<P: AsRef<Path>>(root: P) -> Vec<(String, FileMeta)> {
         })
         .filter_map(|e| e.ok())
     {
+        count += 1;
+        if count > MAX_FOLDER_ITEMS {
+            return Err(format!(
+                "Folder '{}' exceeds the safety limit of 250,000 items (found >{} items). Comparison stopped to prevent an out-of-memory crash. Please select a specific subfolder.",
+                root_path.display(),
+                MAX_FOLDER_ITEMS
+            ));
+        }
+
+        if count % 5_000 == 0 {
+            on_progress(count);
+        }
+
         if let Ok(rel) = entry.path().strip_prefix(root_path) {
             let rel_str = rel.to_string_lossy().replace('\\', "/");
             let ft = entry.file_type();
@@ -92,20 +113,70 @@ fn scan_dir<P: AsRef<Path>>(root: P) -> Vec<(String, FileMeta)> {
         }
     }
 
+    on_progress(list.len());
     list.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-    list
+    Ok(list)
 }
 
-pub fn compare_folders<P: AsRef<Path> + Sync>(
+pub fn compare_folders<P: AsRef<Path> + Sync, F: Fn(FolderProgressPayload) + Send + Sync + 'static>(
     left_path: P,
     right_path: P,
     deep_hash_check: bool,
-) -> FolderCompareResult {
+    progress: F,
+) -> Result<FolderCompareResult, String> {
+    let progress = Arc::new(progress);
+
+    let left_count = Arc::new(AtomicUsize::new(0));
+    let right_count = Arc::new(AtomicUsize::new(0));
+
+    let p_left = Arc::clone(&progress);
+    let p_right = Arc::clone(&progress);
+    let lc_for_l = Arc::clone(&left_count);
+    let rc_for_l = Arc::clone(&right_count);
+    let lc_for_r = Arc::clone(&left_count);
+    let rc_for_r = Arc::clone(&right_count);
+
+    progress(FolderProgressPayload {
+        stage: "scanning".to_string(),
+        left_scanned: 0,
+        right_scanned: 0,
+        compared: 0,
+        total: 0,
+        message: "Scanning directory trees...".to_string(),
+    });
+
     // 1. Scan both directories in parallel
-    let (left_list, right_list) = rayon::join(
-        || scan_dir(&left_path),
-        || scan_dir(&right_path),
+    let (left_res, right_res) = rayon::join(
+        || {
+            scan_dir(&left_path, &|cnt| {
+                lc_for_l.store(cnt, AtomicOrdering::Relaxed);
+                p_left(FolderProgressPayload {
+                    stage: "scanning".to_string(),
+                    left_scanned: cnt,
+                    right_scanned: rc_for_l.load(AtomicOrdering::Relaxed),
+                    compared: 0,
+                    total: 0,
+                    message: format!("Scanning Left folder: {} items found...", cnt),
+                });
+            })
+        },
+        || {
+            scan_dir(&right_path, &|cnt| {
+                rc_for_r.store(cnt, AtomicOrdering::Relaxed);
+                p_right(FolderProgressPayload {
+                    stage: "scanning".to_string(),
+                    left_scanned: lc_for_r.load(AtomicOrdering::Relaxed),
+                    right_scanned: cnt,
+                    compared: 0,
+                    total: 0,
+                    message: format!("Scanning Right folder: {} items found...", cnt),
+                });
+            })
+        },
     );
+
+    let left_list = left_res?;
+    let right_list = right_res?;
 
     // 2. Linear two-pointer merge to identify matches and differences
     let mut i = 0;
@@ -150,6 +221,19 @@ pub fn compare_folders<P: AsRef<Path> + Sync>(
         j += 1;
     }
 
+    let total_items = pairs.len();
+    progress(FolderProgressPayload {
+        stage: "comparing".to_string(),
+        left_scanned: l_len,
+        right_scanned: r_len,
+        compared: 0,
+        total: total_items,
+        message: format!("Comparing {} items across folders...", total_items),
+    });
+
+    let hash_counter = Arc::new(AtomicUsize::new(0));
+    let p_hash = Arc::clone(&progress);
+
     // 3. Process pairs in parallel with Rayon
     let entries: Vec<FolderEntry> = pairs
         .into_par_iter()
@@ -179,6 +263,18 @@ pub fn compare_folders<P: AsRef<Path> + Sync>(
                 } else if l.1.size != r.1.size {
                     FolderItemStatus::Modified
                 } else if deep_hash_check {
+                    let cur = hash_counter.fetch_add(1, AtomicOrdering::Relaxed);
+                    if cur % 2_000 == 0 {
+                        p_hash(FolderProgressPayload {
+                            stage: "hashing".to_string(),
+                            left_scanned: l_len,
+                            right_scanned: r_len,
+                            compared: cur,
+                            total: total_items,
+                            message: format!("Verifying file contents ({} / {})...", cur, total_items),
+                        });
+                    }
+
                     if files_identical(&l.1.full_path, &r.1.full_path, l.1.size) {
                         FolderItemStatus::Identical
                     } else {
@@ -220,11 +316,20 @@ pub fn compare_folders<P: AsRef<Path> + Sync>(
         }
     }
 
-    FolderCompareResult {
+    progress(FolderProgressPayload {
+        stage: "done".to_string(),
+        left_scanned: l_len,
+        right_scanned: r_len,
+        compared: total_items,
+        total: total_items,
+        message: format!("Compared {} items successfully", total_items),
+    });
+
+    Ok(FolderCompareResult {
         entries,
         total_identical,
         total_modified,
         total_only_left,
         total_only_right,
-    }
+    })
 }

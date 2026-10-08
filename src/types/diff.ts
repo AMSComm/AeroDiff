@@ -76,6 +76,15 @@ export interface FolderCompareResult {
   total_only_right: number;
 }
 
+export interface FolderProgressPayload {
+  stage: 'scanning' | 'comparing' | 'hashing' | 'done';
+  left_scanned: number;
+  right_scanned: number;
+  compared: number;
+  total: number;
+  message: string;
+}
+
 export type CsvRowStatus = 'Unchanged' | 'Modified' | 'Added' | 'Deleted';
 
 export interface CsvCellDiff {

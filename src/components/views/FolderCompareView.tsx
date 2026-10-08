@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Folder,
@@ -18,8 +18,8 @@ import {
 import { useTabStore } from '../../stores/tabStore';
 import { useQuickCompareStore } from '../../stores/quickCompareStore';
 import { ContextMenu } from '../common/ContextMenu';
-import { FolderEntry, FolderItemStatus } from '../../types/diff';
-import { invokeCompareFolders } from '../../utils/ipc';
+import { FolderEntry, FolderItemStatus, FolderProgressPayload } from '../../types/diff';
+import { invokeCompareFolders, isTauri } from '../../utils/ipc';
 
 export const FolderCompareView: React.FC = () => {
   const { getActiveTab, updateActiveTab, openFileCompareTab, changeFolderSide } = useTabStore();
@@ -29,7 +29,29 @@ export const FolderCompareView: React.FC = () => {
   const [filter, setFilter] = useState<'all' | FolderItemStatus>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [deepHash, setDeepHash] = useState(false);
+  const [scanProgress, setScanProgress] = useState<FolderProgressPayload | null>(null);
   const parentContainerRef = useRef<HTMLDivElement>(null);
+
+  // Listen to live scan & comparison progress emitted by Tauri
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        unlisten = await listen<FolderProgressPayload>('folder-compare-progress', (event) => {
+          if (event.payload) {
+            setScanProgress(event.payload);
+          }
+        });
+      } catch (err) {
+        console.warn('Could not register folder progress listener:', err);
+      }
+    })();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
@@ -93,13 +115,14 @@ export const FolderCompareView: React.FC = () => {
 
   const handleRescan = async () => {
     if (!leftPath || !rightPath) return;
-    updateActiveTab({ isComputing: true });
+    setScanProgress(null);
+    updateActiveTab({ isComputing: true, diffError: null });
     try {
       const res = await invokeCompareFolders(leftPath, rightPath, deepHash);
-      updateActiveTab({ folderResult: res, isComputing: false });
-    } catch (e) {
+      updateActiveTab({ folderResult: res, isComputing: false, diffError: null });
+    } catch (e: any) {
       console.error('Failed to rescan folders:', e);
-      updateActiveTab({ isComputing: false });
+      updateActiveTab({ isComputing: false, diffError: e?.message || String(e) });
     }
   };
 
@@ -192,6 +215,29 @@ export const FolderCompareView: React.FC = () => {
               className="bg-transparent border-none text-xs text-neutral-200 focus:outline-none w-36"
             />
           </div>
+
+          {/* Live Progress Status Badge */}
+          {activeTab.isComputing && (
+            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-[11px] font-mono text-neutral-300">
+              <RefreshCw className="w-3 h-3 text-emerald-400 animate-spin shrink-0" />
+              <span>
+                {scanProgress?.stage === 'scanning' ? (
+                  <span>
+                    Scanning... L: <span className="text-emerald-400">{scanProgress.left_scanned.toLocaleString()}</span> | R:{' '}
+                    <span className="text-emerald-400">{scanProgress.right_scanned.toLocaleString()}</span>
+                  </span>
+                ) : scanProgress?.stage === 'comparing' ? (
+                  <span>Comparing {scanProgress.total.toLocaleString()} items...</span>
+                ) : scanProgress?.stage === 'hashing' ? (
+                  <span>
+                    Hashing {scanProgress.compared.toLocaleString()} / {scanProgress.total.toLocaleString()}...
+                  </span>
+                ) : (
+                  <span>Scanning...</span>
+                )}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Status Filter Buttons */}
@@ -296,101 +342,205 @@ export const FolderCompareView: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Files Table */}
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {/* Table Header */}
-        <div className="bg-neutral-900 border-b border-neutral-800 text-neutral-400 text-[11px] uppercase tracking-wider font-semibold flex items-center pr-3 shrink-0 select-none">
-          <div className="py-2 px-3 w-10 shrink-0 text-center">Type</div>
-          <div className="py-2 px-3 flex-1 min-w-0">Name & Relative Path</div>
-          <div className="py-2 px-3 w-36 shrink-0">Result</div>
-          <div className="py-2 px-3 w-28 shrink-0 text-right">Left Size</div>
-          <div className="py-2 px-3 w-28 shrink-0 text-right">Right Size</div>
-          <div className="py-2 px-3 w-32 shrink-0 text-center">Action</div>
-        </div>
-
-        {/* Virtualized List Container */}
-        <div ref={parentContainerRef} className="flex-1 overflow-auto">
-          {entries.length === 0 ? (
-            <div className="py-12 text-center text-neutral-500 font-mono text-xs">
-              {folderResult
-                ? 'No files match the current filter.'
-                : 'Scanning folder contents...'}
+      {/* Main Files Table or Error or Loading Progress Card */}
+      {activeTab.diffError ? (
+        <div className="flex-1 flex items-center justify-center p-6 bg-neutral-950">
+          <div className="max-w-lg w-full bg-neutral-900 border border-rose-500/30 rounded-lg p-6 shadow-xl space-y-4">
+            <div className="flex items-start space-x-3.5">
+              <div className="p-2.5 rounded-md bg-rose-500/10 border border-rose-500/20 text-rose-400 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold text-neutral-100">Folder Comparison Error</h3>
+                <p className="text-xs text-neutral-400 mt-1">
+                  The directory comparison was halted to prevent app freezing or memory exhaustion.
+                </p>
+              </div>
             </div>
-          ) : (
-            <div
-              className="w-full relative font-mono text-xs"
-              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-            >
-              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const idx = virtualRow.index;
-                const entry = entries[idx];
-                if (!entry) return null;
-                const isSelected = selectedIndices.has(idx);
 
-                return (
-                  <div
-                    key={virtualRow.key}
-                    onClick={(e) => handleRowClick(idx, e)}
-                    onContextMenu={(e) => handleRowContextMenu(idx, e)}
-                    onDoubleClick={() => handleOpenFileCompare(entry)}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      height: `${virtualRow.size}px`,
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                    className={`flex items-center border-b border-neutral-900 cursor-pointer transition-colors group select-none ${
-                      isSelected
-                        ? 'bg-neutral-800/90 text-neutral-100 ring-1 ring-emerald-500/50'
-                        : 'hover:bg-neutral-900/70'
-                    }`}
-                  >
-                    <div className="py-1.5 px-3 w-10 shrink-0 flex items-center justify-center">
-                      {entry.is_dir ? (
-                        <Folder className="w-3.5 h-3.5 text-amber-400" />
-                      ) : (
-                        <File className="w-3.5 h-3.5 text-neutral-400" />
-                      )}
-                    </div>
-                    <div className="py-1.5 px-3 flex-1 min-w-0 text-neutral-200 truncate">
-                      <span className="font-semibold text-neutral-100">
-                        {entry.relative_path.split('/').pop()}
-                      </span>
-                      <span className="text-neutral-500 text-[11px] ml-2">
-                        {entry.relative_path}
-                      </span>
-                    </div>
-                    <div className="py-1.5 px-3 w-36 shrink-0">{getStatusBadge(entry.status)}</div>
-                    <div className="py-1.5 px-3 w-28 shrink-0 text-right text-neutral-400">
-                      {formatBytes(entry.left_size)}
-                    </div>
-                    <div className="py-1.5 px-3 w-28 shrink-0 text-right text-neutral-400">
-                      {formatBytes(entry.right_size)}
-                    </div>
-                    <div className="py-1.5 px-3 w-32 shrink-0 text-center">
-                      {!entry.is_dir && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenFileCompare(entry);
-                          }}
-                          title="Open comparison tab for this file"
-                          className="inline-flex items-center space-x-1 text-[11px] px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-300 hover:bg-sky-500/20 transition-colors"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                          <span>Diff Files</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="p-3 rounded bg-neutral-950/80 border border-neutral-800 text-xs font-mono text-rose-300/90 whitespace-pre-wrap break-words leading-relaxed select-text">
+              {activeTab.diffError}
             </div>
-          )}
+
+            <div className="text-[11px] text-neutral-500 leading-normal">
+              💡 For massive directories with tens of thousands of files, use Quick Compare (metadata matching) or compare more targeted subdirectories.
+            </div>
+
+            <div className="pt-2 flex items-center justify-end space-x-2 border-t border-neutral-800/80">
+              <button
+                onClick={() =>
+                  updateActiveTab({
+                    type: 'welcome',
+                    folderResult: undefined,
+                    diffError: null,
+                    isComputing: false,
+                  })
+                }
+                className="px-3 py-1.5 rounded text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-200 transition-colors"
+              >
+                Back to Welcome
+              </button>
+              <button
+                onClick={handleRescan}
+                className="px-3 py-1.5 rounded text-xs bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-semibold transition-colors flex items-center space-x-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Retry Scan</span>
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      ) : activeTab.isComputing && entries.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center p-6 bg-neutral-950 select-none">
+          <div className="max-w-md w-full bg-neutral-900 border border-neutral-800 rounded-lg p-6 shadow-xl space-y-5">
+            <div className="flex items-center space-x-3">
+              <div className="p-2.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shrink-0">
+                <RefreshCw className="w-5 h-5 animate-spin" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-semibold text-neutral-100">
+                  {scanProgress?.stage === 'comparing'
+                    ? 'Comparing Files...'
+                    : scanProgress?.stage === 'hashing'
+                    ? 'Verifying File Hashes (CRC32)...'
+                    : 'Discovering Files & Folders...'}
+                </h3>
+                <p className="text-[11px] text-neutral-400 mt-0.5 truncate">
+                  {scanProgress?.message || 'Walking directory trees in parallel...'}
+                </p>
+              </div>
+            </div>
+
+            {/* Metrics Counter */}
+            <div className="grid grid-cols-2 gap-3 font-mono">
+              <div className="p-3 bg-neutral-950 border border-neutral-800/90 rounded">
+                <div className="text-[10px] text-neutral-500 uppercase tracking-wider">Left Scanned</div>
+                <div className="text-base font-bold text-neutral-100 mt-1">
+                  {scanProgress ? scanProgress.left_scanned.toLocaleString() : '0'}
+                </div>
+                <div className="text-[10px] text-neutral-500 truncate mt-0.5" title={leftPath}>
+                  {leftPath.split('/').pop() || 'Left'}
+                </div>
+              </div>
+              <div className="p-3 bg-neutral-950 border border-neutral-800/90 rounded">
+                <div className="text-[10px] text-neutral-500 uppercase tracking-wider">Right Scanned</div>
+                <div className="text-base font-bold text-neutral-100 mt-1">
+                  {scanProgress ? scanProgress.right_scanned.toLocaleString() : '0'}
+                </div>
+                <div className="text-[10px] text-neutral-500 truncate mt-0.5" title={rightPath}>
+                  {rightPath.split('/').pop() || 'Right'}
+                </div>
+              </div>
+            </div>
+
+            {/* Animated Bar & Safety Threshold */}
+            <div className="space-y-1.5">
+              <div className="h-1.5 w-full bg-neutral-950 rounded-full overflow-hidden border border-neutral-800">
+                <div className="h-full bg-emerald-500 rounded-full animate-pulse w-full" />
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-neutral-500 font-mono">
+                <span>Safe Limit: 250,000 items</span>
+                <span>{deepHash ? 'CRC32 Deep Hash' : 'Quick Mode (Size + Date)'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {/* Table Header */}
+          <div className="bg-neutral-900 border-b border-neutral-800 text-neutral-400 text-[11px] uppercase tracking-wider font-semibold flex items-center pr-3 shrink-0 select-none">
+            <div className="py-2 px-3 w-10 shrink-0 text-center">Type</div>
+            <div className="py-2 px-3 flex-1 min-w-0">Name & Relative Path</div>
+            <div className="py-2 px-3 w-36 shrink-0">Result</div>
+            <div className="py-2 px-3 w-28 shrink-0 text-right">Left Size</div>
+            <div className="py-2 px-3 w-28 shrink-0 text-right">Right Size</div>
+            <div className="py-2 px-3 w-32 shrink-0 text-center">Action</div>
+          </div>
+
+          {/* Virtualized List Container */}
+          <div ref={parentContainerRef} className="flex-1 overflow-auto">
+            {entries.length === 0 ? (
+              <div className="py-12 text-center text-neutral-500 font-mono text-xs">
+                {folderResult
+                  ? 'No files match the current filter.'
+                  : 'No files to display.'}
+              </div>
+            ) : (
+              <div
+                className="w-full relative font-mono text-xs"
+                style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+              >
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const idx = virtualRow.index;
+                  const entry = entries[idx];
+                  if (!entry) return null;
+                  const isSelected = selectedIndices.has(idx);
+
+                  return (
+                    <div
+                      key={virtualRow.key}
+                      onClick={(e) => handleRowClick(idx, e)}
+                      onContextMenu={(e) => handleRowContextMenu(idx, e)}
+                      onDoubleClick={() => handleOpenFileCompare(entry)}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: `${virtualRow.size}px`,
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                      className={`flex items-center border-b border-neutral-900 cursor-pointer transition-colors group select-none ${
+                        isSelected
+                          ? 'bg-neutral-800/90 text-neutral-100 ring-1 ring-emerald-500/50'
+                          : 'hover:bg-neutral-900/70'
+                      }`}
+                    >
+                      <div className="py-1.5 px-3 w-10 shrink-0 flex items-center justify-center">
+                        {entry.is_dir ? (
+                          <Folder className="w-3.5 h-3.5 text-amber-400" />
+                        ) : (
+                          <File className="w-3.5 h-3.5 text-neutral-400" />
+                        )}
+                      </div>
+                      <div className="py-1.5 px-3 flex-1 min-w-0 text-neutral-200 truncate">
+                        <span className="font-semibold text-neutral-100">
+                          {entry.relative_path.split('/').pop()}
+                        </span>
+                        <span className="text-neutral-500 text-[11px] ml-2">
+                          {entry.relative_path}
+                        </span>
+                      </div>
+                      <div className="py-1.5 px-3 w-36 shrink-0">{getStatusBadge(entry.status)}</div>
+                      <div className="py-1.5 px-3 w-28 shrink-0 text-right text-neutral-400">
+                        {formatBytes(entry.left_size)}
+                      </div>
+                      <div className="py-1.5 px-3 w-28 shrink-0 text-right text-neutral-400">
+                        {formatBytes(entry.right_size)}
+                      </div>
+                      <div className="py-1.5 px-3 w-32 shrink-0 text-center">
+                        {!entry.is_dir && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenFileCompare(entry);
+                            }}
+                            title="Open comparison tab for this file"
+                            className="inline-flex items-center space-x-1 text-[11px] px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-300 hover:bg-sky-500/20 transition-colors"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            <span>Diff Files</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Context Menu for Table Rows */}
       {rowContextMenu && selectedIndices.size > 0 && (

@@ -288,14 +288,19 @@ pub fn save_file(path: String, content: String, encoding: Option<String>) -> Res
 
 #[tauri::command]
 pub async fn compare_folders_cmd(
+    app: tauri::AppHandle,
     left_path: String,
     right_path: String,
     deep_hash: bool,
 ) -> Result<FolderCompareResult, String> {
+    use tauri::Emitter;
     let clean_l = left_path.trim().trim_matches('"').trim_matches('\'').to_string();
     let clean_r = right_path.trim().trim_matches('"').trim_matches('\'').to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        Ok(compare_folders(clean_l, clean_r, deep_hash))
+        let app_handle = app.clone();
+        compare_folders(clean_l, clean_r, deep_hash, move |progress| {
+            let _ = app_handle.emit("folder-compare-progress", &progress);
+        })
     })
     .await
     .map_err(|e| e.to_string())?

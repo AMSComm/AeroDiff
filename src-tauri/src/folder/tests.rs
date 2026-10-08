@@ -24,7 +24,7 @@ mod tests {
         // Right only
         fs::write(dir_right.path().join("right_only.txt"), "right").unwrap();
 
-        let result = compare_folders(dir_left.path(), dir_right.path(), true);
+        let result = compare_folders(dir_left.path(), dir_right.path(), true, |_| {}).unwrap();
 
         assert_eq!(result.total_identical, 1);
         assert_eq!(result.total_modified, 1);
