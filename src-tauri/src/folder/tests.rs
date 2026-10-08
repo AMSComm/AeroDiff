@@ -117,4 +117,25 @@ mod tests {
         assert!(res_include.entries.iter().any(|e| e.relative_path == ".env"));
         assert!(res_include.entries.iter().any(|e| e.relative_path.contains("settings.json")));
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_compare_folders_symlink_to_directory() {
+        use std::os::unix::fs::symlink;
+        let dir_left = tempdir().unwrap();
+        let dir_right = tempdir().unwrap();
+
+        let target_dir = tempdir().unwrap();
+        fs::write(target_dir.path().join("sub.txt"), "hello").unwrap();
+
+        // Create symlink to directory in left and right
+        symlink(target_dir.path(), dir_left.path().join("link_to_dir")).unwrap();
+        symlink(target_dir.path(), dir_right.path().join("link_to_dir")).unwrap();
+
+        let opts = FolderCompareOptions::default();
+        let res = compare_folders(dir_left.path(), dir_right.path(), opts, |_| {}).unwrap();
+        let entry = res.entries.iter().find(|e| e.relative_path == "link_to_dir").unwrap();
+        assert!(entry.is_dir, "Symlink to directory must have is_dir = true");
+        assert_eq!(entry.status, FolderItemStatus::Identical);
+    }
 }

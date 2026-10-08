@@ -28,7 +28,7 @@ export const FolderCompareView: React.FC = () => {
 
   const [filter, setFilter] = useState<'all' | FolderItemStatus>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [deepHash, setDeepHash] = useState(false);
+  const [deepHash, setDeepHash] = useState(true);
   const [ignoreLineEndings, setIgnoreLineEndings] = useState(true);
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
   const [includeHiddenFolders, setIncludeHiddenFolders] = useState(false);

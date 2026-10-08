@@ -113,6 +113,9 @@ pub fn compare_files(
     }
 
     let meta_l = fs::metadata(p_left).map_err(|e| format!("Failed to read metadata for left file '{}': {}", clean_l, e))?;
+    if meta_l.is_dir() {
+        return Err(format!("Left target '{}' is a directory, not a file.", clean_l));
+    }
     if meta_l.len() > MAX_FILE_SIZE {
         let size_mb = meta_l.len() as f64 / (1024.0 * 1024.0);
         return Err(format!(
@@ -123,6 +126,9 @@ pub fn compare_files(
     }
 
     let meta_r = fs::metadata(p_right).map_err(|e| format!("Failed to read metadata for right file '{}': {}", clean_r, e))?;
+    if meta_r.is_dir() {
+        return Err(format!("Right target '{}' is a directory, not a file.", clean_r));
+    }
     if meta_r.len() > MAX_FILE_SIZE {
         let size_mb = meta_r.len() as f64 / (1024.0 * 1024.0);
         return Err(format!(
@@ -238,6 +244,9 @@ pub fn read_file(path: String, encoding: Option<String>) -> Result<FileContentRe
         return Err(format!("File does not exist: {}", clean));
     }
     let metadata = fs::metadata(p).map_err(|e| format!("Failed to read metadata for '{}': {}", clean, e))?;
+    if metadata.is_dir() {
+        return Err(format!("'{}' is a directory, not a file.", clean));
+    }
     if metadata.len() > MAX_FILE_SIZE {
         let size_mb = metadata.len() as f64 / (1024.0 * 1024.0);
         return Err(format!(

@@ -19,8 +19,8 @@ pub struct FolderCompareOptions {
 impl Default for FolderCompareOptions {
     fn default() -> Self {
         Self {
-            deep_hash: Some(false),
-            ignore_line_endings: Some(false),
+            deep_hash: Some(true),
+            ignore_line_endings: Some(true),
             ignore_whitespace: Some(false),
             include_hidden_folders: Some(false),
         }

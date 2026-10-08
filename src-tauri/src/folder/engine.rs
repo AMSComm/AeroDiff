@@ -161,27 +161,26 @@ fn compare_file_contents(
     ignore_whitespace: bool,
     _deep_hash: bool,
 ) -> bool {
-    if left_size == right_size && !ignore_line_endings && !ignore_whitespace {
-        return files_identical(left_path, right_path, left_size);
+    // TIER 1 Fast Path: Exact raw-byte comparison.
+    // If files have the same size and identical bytes, they are 100% identical in all aspects
+    // (including CRLF and whitespace), avoiding any expensive line-by-line parsing or allocations.
+    if left_size == right_size && files_identical(left_path, right_path, left_size) {
+        return true;
     }
 
+    // TIER 2: If either file is binary, different raw bytes mean the file is modified
     let left_is_bin = is_file_binary(left_path);
     let right_is_bin = is_file_binary(right_path);
-
     if left_is_bin || right_is_bin {
-        if left_size != right_size {
-            return false;
-        }
-        return files_identical(left_path, right_path, left_size);
+        return false;
     }
 
+    // TIER 3: If no ignore options are enabled, different raw bytes/size mean modified
     if !ignore_line_endings && !ignore_whitespace {
-        if left_size != right_size {
-            return false;
-        }
-        return files_identical(left_path, right_path, left_size);
+        return false;
     }
 
+    // TIER 4 Slow Path: Only text files with raw byte differences need normalized line comparison
     compare_text_files_normalized(left_path, right_path, ignore_line_endings, ignore_whitespace)
 }
 
@@ -231,10 +230,29 @@ fn scan_dir<P: AsRef<Path>, F: Fn(usize) + Send + Sync>(
         if let Ok(rel) = entry.path().strip_prefix(root_path) {
             let rel_str = rel.to_string_lossy().replace('\\', "/");
             let ft = entry.file_type();
-            let is_dir = ft.is_dir();
-
-            let (size, modified) = if is_dir {
-                (0, 0)
+            let is_symlink = ft.is_symlink();
+            let (is_dir, size, modified) = if is_symlink {
+                // If the entry is a symlink, resolve the target to see if it is a directory or file
+                if let Ok(target_meta) = std::fs::metadata(entry.path()) {
+                    if target_meta.is_dir() {
+                        (true, 0, 0)
+                    } else {
+                        let s = target_meta.len();
+                        let m = target_meta
+                            .modified()
+                            .ok()
+                            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        (false, s, m)
+                    }
+                } else {
+                    // Broken symlink: record symlink file size
+                    let s = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    (false, s, 0)
+                }
+            } else if ft.is_dir() {
+                (true, 0, 0)
             } else if let Ok(meta) = entry.metadata() {
                 let s = meta.len();
                 let m = meta
@@ -243,7 +261,7 @@ fn scan_dir<P: AsRef<Path>, F: Fn(usize) + Send + Sync>(
                     .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                (s, m)
+                (false, s, m)
             } else {
                 continue;
             };

@@ -327,13 +327,20 @@ export async function invokeCompareFolders(
       ? { deep_hash: optionsOrDeepHash }
       : optionsOrDeepHash || {};
 
+  const effectiveOptions: FolderCompareOptions = {
+    deep_hash: options.deep_hash ?? true,
+    ignore_line_endings: options.ignore_line_endings ?? true,
+    ignore_whitespace: options.ignore_whitespace ?? false,
+    include_hidden_folders: options.include_hidden_folders ?? false,
+  };
+
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
     return await invoke('compare_folders_cmd', {
       leftPath: cLeft,
       rightPath: cRight,
-      deepHash: options.deep_hash ?? false,
-      options,
+      deepHash: effectiveOptions.deep_hash,
+      options: effectiveOptions,
     });
   }
   return {
