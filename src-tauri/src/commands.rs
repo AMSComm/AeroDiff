@@ -287,14 +287,18 @@ pub fn save_file(path: String, content: String, encoding: Option<String>) -> Res
 }
 
 #[tauri::command]
-pub fn compare_folders_cmd(
+pub async fn compare_folders_cmd(
     left_path: String,
     right_path: String,
     deep_hash: bool,
 ) -> Result<FolderCompareResult, String> {
-    let clean_l = left_path.trim().trim_matches('"').trim_matches('\'');
-    let clean_r = right_path.trim().trim_matches('"').trim_matches('\'');
-    Ok(compare_folders(clean_l.to_string(), clean_r.to_string(), deep_hash))
+    let clean_l = left_path.trim().trim_matches('"').trim_matches('\'').to_string();
+    let clean_r = right_path.trim().trim_matches('"').trim_matches('\'').to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(compare_folders(clean_l, clean_r, deep_hash))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

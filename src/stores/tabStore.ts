@@ -265,7 +265,7 @@ export const useTabStore = create<TabState>((set, get) => ({
     }));
 
     try {
-      const res = await invokeCompareFolders(leftPath, rightPath, true);
+      const res = await invokeCompareFolders(leftPath, rightPath, false);
       get().updateActiveTab({ folderResult: res, isComputing: false, diffError: null });
     } catch (e: any) {
       console.error('Failed to scan folders:', e);
@@ -364,7 +364,7 @@ export const useTabStore = create<TabState>((set, get) => ({
       });
 
       try {
-        const res = await invokeCompareFolders(cLeft, cRight, true);
+        const res = await invokeCompareFolders(cLeft, cRight, false);
         get().updateActiveTab({ folderResult: res, isComputing: false, diffError: null });
       } catch (e: any) {
         console.error('Failed to compare folders:', e);
@@ -928,7 +928,7 @@ export const useTabStore = create<TabState>((set, get) => ({
     });
 
     try {
-      const res = await invokeCompareFolders(leftPath, rightPath, true);
+      const res = await invokeCompareFolders(leftPath, rightPath, false);
       get().updateActiveTab({ folderResult: res, isComputing: false, diffError: null });
       return true;
     } catch (e: any) {

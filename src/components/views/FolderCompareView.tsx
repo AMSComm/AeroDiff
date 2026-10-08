@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Folder,
   File,
@@ -27,7 +28,8 @@ export const FolderCompareView: React.FC = () => {
 
   const [filter, setFilter] = useState<'all' | FolderItemStatus>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [deepHash, setDeepHash] = useState(true);
+  const [deepHash, setDeepHash] = useState(false);
+  const parentContainerRef = useRef<HTMLDivElement>(null);
 
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
@@ -66,11 +68,28 @@ export const FolderCompareView: React.FC = () => {
     setRowContextMenu({ x: e.clientX, y: e.clientY });
   };
 
-  if (!activeTab || activeTab.type !== 'folder') return null;
+  const folderResult = activeTab?.type === 'folder' ? activeTab.folderResult : null;
+  const leftPath = activeTab?.type === 'folder' ? activeTab.leftPath || '' : '';
+  const rightPath = activeTab?.type === 'folder' ? activeTab.rightPath || '' : '';
 
-  const folderResult = activeTab.folderResult;
-  const leftPath = activeTab.leftPath || '';
-  const rightPath = activeTab.rightPath || '';
+  const entries = useMemo(() => {
+    const list = folderResult?.entries || [];
+    const query = searchQuery.trim().toLowerCase();
+    return list.filter((e) => {
+      if (filter !== 'all' && e.status !== filter) return false;
+      if (query && !e.relative_path.toLowerCase().includes(query)) return false;
+      return true;
+    });
+  }, [folderResult?.entries, filter, searchQuery]);
+
+  const rowVirtualizer = useVirtualizer({
+    count: entries.length,
+    getScrollElement: () => parentContainerRef.current,
+    estimateSize: () => 34,
+    overscan: 25,
+  });
+
+  if (!activeTab || activeTab.type !== 'folder') return null;
 
   const handleRescan = async () => {
     if (!leftPath || !rightPath) return;
@@ -90,16 +109,6 @@ export const FolderCompareView: React.FC = () => {
     const fullRight = `${rightPath}/${entry.relative_path}`;
     await openFileCompareTab(fullLeft, fullRight);
   };
-
-  const entries = (folderResult?.entries || [])
-    .filter((e) => {
-      if (filter === 'all') return true;
-      return e.status === filter;
-    })
-    .filter((e) => {
-      if (!searchQuery.trim()) return true;
-      return e.relative_path.toLowerCase().includes(searchQuery.toLowerCase());
-    });
 
   const formatBytes = (bytes: number | null) => {
     if (bytes === null) return '-';
@@ -288,65 +297,79 @@ export const FolderCompareView: React.FC = () => {
       </div>
 
       {/* Main Files Table */}
-      <div className="flex-1 overflow-auto">
-        <table className="w-full text-left text-xs font-mono border-collapse">
-          <thead className="bg-neutral-900 sticky top-0 border-b border-neutral-800 text-neutral-400 text-[11px] uppercase tracking-wider">
-            <tr>
-              <th className="py-2 px-3 w-8">Type</th>
-              <th className="py-2 px-3">Name & Relative Path</th>
-              <th className="py-2 px-3 w-36">Result</th>
-              <th className="py-2 px-3 w-28 text-right">Left Size</th>
-              <th className="py-2 px-3 w-28 text-right">Right Size</th>
-              <th className="py-2 px-3 w-32 text-center">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-neutral-900">
-            {entries.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="py-12 text-center text-neutral-500">
-                  {folderResult
-                    ? 'No files match the current filter.'
-                    : 'Scanning folder contents...'}
-                </td>
-              </tr>
-            ) : (
-              entries.map((entry, idx) => {
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        {/* Table Header */}
+        <div className="bg-neutral-900 border-b border-neutral-800 text-neutral-400 text-[11px] uppercase tracking-wider font-semibold flex items-center pr-3 shrink-0 select-none">
+          <div className="py-2 px-3 w-10 shrink-0 text-center">Type</div>
+          <div className="py-2 px-3 flex-1 min-w-0">Name & Relative Path</div>
+          <div className="py-2 px-3 w-36 shrink-0">Result</div>
+          <div className="py-2 px-3 w-28 shrink-0 text-right">Left Size</div>
+          <div className="py-2 px-3 w-28 shrink-0 text-right">Right Size</div>
+          <div className="py-2 px-3 w-32 shrink-0 text-center">Action</div>
+        </div>
+
+        {/* Virtualized List Container */}
+        <div ref={parentContainerRef} className="flex-1 overflow-auto">
+          {entries.length === 0 ? (
+            <div className="py-12 text-center text-neutral-500 font-mono text-xs">
+              {folderResult
+                ? 'No files match the current filter.'
+                : 'Scanning folder contents...'}
+            </div>
+          ) : (
+            <div
+              className="w-full relative font-mono text-xs"
+              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const idx = virtualRow.index;
+                const entry = entries[idx];
+                if (!entry) return null;
                 const isSelected = selectedIndices.has(idx);
+
                 return (
-                  <tr
-                    key={idx}
+                  <div
+                    key={virtualRow.key}
                     onClick={(e) => handleRowClick(idx, e)}
                     onContextMenu={(e) => handleRowContextMenu(idx, e)}
                     onDoubleClick={() => handleOpenFileCompare(entry)}
-                    className={`cursor-pointer transition-colors group ${
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: `${virtualRow.size}px`,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                    className={`flex items-center border-b border-neutral-900 cursor-pointer transition-colors group select-none ${
                       isSelected
                         ? 'bg-neutral-800/90 text-neutral-100 ring-1 ring-emerald-500/50'
                         : 'hover:bg-neutral-900/70'
                     }`}
                   >
-                    <td className="py-1.5 px-3">
+                    <div className="py-1.5 px-3 w-10 shrink-0 flex items-center justify-center">
                       {entry.is_dir ? (
                         <Folder className="w-3.5 h-3.5 text-amber-400" />
                       ) : (
                         <File className="w-3.5 h-3.5 text-neutral-400" />
                       )}
-                    </td>
-                    <td className="py-1.5 px-3 text-neutral-200 truncate">
+                    </div>
+                    <div className="py-1.5 px-3 flex-1 min-w-0 text-neutral-200 truncate">
                       <span className="font-semibold text-neutral-100">
                         {entry.relative_path.split('/').pop()}
                       </span>
                       <span className="text-neutral-500 text-[11px] ml-2">
                         {entry.relative_path}
                       </span>
-                    </td>
-                    <td className="py-1.5 px-3">{getStatusBadge(entry.status)}</td>
-                    <td className="py-1.5 px-3 text-right text-neutral-400">
+                    </div>
+                    <div className="py-1.5 px-3 w-36 shrink-0">{getStatusBadge(entry.status)}</div>
+                    <div className="py-1.5 px-3 w-28 shrink-0 text-right text-neutral-400">
                       {formatBytes(entry.left_size)}
-                    </td>
-                    <td className="py-1.5 px-3 text-right text-neutral-400">
+                    </div>
+                    <div className="py-1.5 px-3 w-28 shrink-0 text-right text-neutral-400">
                       {formatBytes(entry.right_size)}
-                    </td>
-                    <td className="py-1.5 px-3 text-center">
+                    </div>
+                    <div className="py-1.5 px-3 w-32 shrink-0 text-center">
                       {!entry.is_dir && (
                         <button
                           onClick={(e) => {
@@ -360,13 +383,13 @@ export const FolderCompareView: React.FC = () => {
                           <span>Diff Files</span>
                         </button>
                       )}
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 );
-              })
-            )}
-          </tbody>
-        </table>
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Context Menu for Table Rows */}
