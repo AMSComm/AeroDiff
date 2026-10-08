@@ -335,6 +335,17 @@ export async function invokeCompareFolders(
   };
 }
 
+export async function invokeCancelFolderComparison(): Promise<void> {
+  if (isTauri()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('cancel_folder_comparison_cmd');
+    } catch (err) {
+      console.warn('Tauri cancel_folder_comparison_cmd error:', err);
+    }
+  }
+}
+
 function computeLocalCsvDiff(
   leftContent: string,
   rightContent: string,

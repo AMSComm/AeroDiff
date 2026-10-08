@@ -29,6 +29,7 @@ pub fn run() {
             save_file,
             check_path,
             compare_folders_cmd,
+            cancel_folder_comparison_cmd,
             compare_csv_cmd,
             get_diff_slice,
             close_diff_session,

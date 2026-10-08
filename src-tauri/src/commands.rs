@@ -307,6 +307,11 @@ pub async fn compare_folders_cmd(
 }
 
 #[tauri::command]
+pub fn cancel_folder_comparison_cmd() {
+    crate::folder::engine::cancel_folder_comparison();
+}
+
+#[tauri::command]
 pub async fn compare_csv_cmd(
     left_content: String,
     right_content: String,

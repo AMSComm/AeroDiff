@@ -4,12 +4,20 @@ use std::cmp::Ordering;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
-pub const MAX_FOLDER_ITEMS: usize = 250_000;
+static CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+pub fn cancel_folder_comparison() {
+    CANCEL_REQUESTED.store(true, AtomicOrdering::SeqCst);
+}
+
+pub fn is_cancel_requested() -> bool {
+    CANCEL_REQUESTED.load(AtomicOrdering::Relaxed)
+}
 
 struct FileMeta {
     is_dir: bool,
@@ -69,15 +77,10 @@ fn scan_dir<P: AsRef<Path>, F: Fn(usize) + Send + Sync>(
         .filter_map(|e| e.ok())
     {
         count += 1;
-        if count > MAX_FOLDER_ITEMS {
-            return Err(format!(
-                "Folder '{}' exceeds the safety limit of 250,000 items (found >{} items). Comparison stopped to prevent an out-of-memory crash. Please select a specific subfolder.",
-                root_path.display(),
-                MAX_FOLDER_ITEMS
-            ));
-        }
-
-        if count % 5_000 == 0 {
+        if count % 2_000 == 0 {
+            if is_cancel_requested() {
+                return Err("Comparison was cancelled by user.".to_string());
+            }
             on_progress(count);
         }
 
@@ -100,6 +103,14 @@ fn scan_dir<P: AsRef<Path>, F: Fn(usize) + Send + Sync>(
             } else {
                 continue;
             };
+
+            if list.try_reserve(1).is_err() {
+                return Err(format!(
+                    "System ran out of memory while scanning '{}' (after {} items). Comparison halted safely.",
+                    root_path.display(),
+                    count
+                ));
+            }
 
             list.push((
                 rel_str,
@@ -124,6 +135,7 @@ pub fn compare_folders<P: AsRef<Path> + Sync, F: Fn(FolderProgressPayload) + Sen
     deep_hash_check: bool,
     progress: F,
 ) -> Result<FolderCompareResult, String> {
+    CANCEL_REQUESTED.store(false, AtomicOrdering::SeqCst);
     let progress = Arc::new(progress);
 
     let left_count = Arc::new(AtomicUsize::new(0));
@@ -178,6 +190,10 @@ pub fn compare_folders<P: AsRef<Path> + Sync, F: Fn(FolderProgressPayload) + Sen
     let left_list = left_res?;
     let right_list = right_res?;
 
+    if is_cancel_requested() {
+        return Err("Comparison was cancelled by user.".to_string());
+    }
+
     // 2. Linear two-pointer merge to identify matches and differences
     let mut i = 0;
     let mut j = 0;
@@ -190,7 +206,10 @@ pub fn compare_folders<P: AsRef<Path> + Sync, F: Fn(FolderProgressPayload) + Sen
         Both(&'a (String, FileMeta), &'a (String, FileMeta)),
     }
 
-    let mut pairs = Vec::with_capacity(l_len.max(r_len));
+    let mut pairs = Vec::new();
+    if pairs.try_reserve(l_len.max(r_len)).is_err() {
+        return Err("System ran out of memory while allocating comparison tree. Comparison halted safely.".to_string());
+    }
 
     while i < l_len && j < r_len {
         let l = &left_list[i];
@@ -301,6 +320,10 @@ pub fn compare_folders<P: AsRef<Path> + Sync, F: Fn(FolderProgressPayload) + Sen
             }
         })
         .collect();
+
+    if is_cancel_requested() {
+        return Err("Comparison was cancelled by user.".to_string());
+    }
 
     let mut total_identical = 0;
     let mut total_modified = 0;

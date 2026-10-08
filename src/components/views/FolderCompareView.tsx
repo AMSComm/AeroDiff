@@ -19,7 +19,7 @@ import { useTabStore } from '../../stores/tabStore';
 import { useQuickCompareStore } from '../../stores/quickCompareStore';
 import { ContextMenu } from '../common/ContextMenu';
 import { FolderEntry, FolderItemStatus, FolderProgressPayload } from '../../types/diff';
-import { invokeCompareFolders, isTauri } from '../../utils/ipc';
+import { invokeCompareFolders, invokeCancelFolderComparison, isTauri } from '../../utils/ipc';
 
 export const FolderCompareView: React.FC = () => {
   const { getActiveTab, updateActiveTab, openFileCompareTab, changeFolderSide } = useTabStore();
@@ -126,6 +126,15 @@ export const FolderCompareView: React.FC = () => {
     }
   };
 
+  const handleCancelScan = async () => {
+    try {
+      await invokeCancelFolderComparison();
+      updateActiveTab({ isComputing: false, diffError: 'Comparison was stopped by user.' });
+    } catch (e) {
+      console.error('Failed to cancel scan:', e);
+    }
+  };
+
   const handleOpenFileCompare = async (entry: FolderEntry) => {
     if (entry.is_dir) return;
     const fullLeft = `${leftPath}/${entry.relative_path}`;
@@ -218,7 +227,7 @@ export const FolderCompareView: React.FC = () => {
 
           {/* Live Progress Status Badge */}
           {activeTab.isComputing && (
-            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-[11px] font-mono text-neutral-300">
+            <div className="flex items-center space-x-2 px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-[11px] font-mono text-neutral-300">
               <RefreshCw className="w-3 h-3 text-emerald-400 animate-spin shrink-0" />
               <span>
                 {scanProgress?.stage === 'scanning' ? (
@@ -236,6 +245,13 @@ export const FolderCompareView: React.FC = () => {
                   <span>Scanning...</span>
                 )}
               </span>
+              <button
+                onClick={handleCancelScan}
+                title="Stop folder comparison"
+                className="ml-1 px-1.5 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[10px] font-sans font-medium transition-colors"
+              >
+                Stop
+              </button>
             </div>
           )}
         </div>
@@ -433,15 +449,24 @@ export const FolderCompareView: React.FC = () => {
               </div>
             </div>
 
-            {/* Animated Bar & Safety Threshold */}
+            {/* Animated Bar & Safety Monitoring */}
             <div className="space-y-1.5">
               <div className="h-1.5 w-full bg-neutral-950 rounded-full overflow-hidden border border-neutral-800">
                 <div className="h-full bg-emerald-500 rounded-full animate-pulse w-full" />
               </div>
               <div className="flex items-center justify-between text-[10px] text-neutral-500 font-mono">
-                <span>Safe Limit: 250,000 items</span>
+                <span>Dynamic Memory Monitoring</span>
                 <span>{deepHash ? 'CRC32 Deep Hash' : 'Quick Mode (Size + Date)'}</span>
               </div>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end border-t border-neutral-800/80">
+              <button
+                onClick={handleCancelScan}
+                className="px-3 py-1.5 rounded text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700 transition-colors"
+              >
+                Cancel Scan
+              </button>
             </div>
           </div>
         </div>
