@@ -8,6 +8,25 @@ pub enum FolderItemStatus {
     OnlyInRight,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderCompareOptions {
+    pub deep_hash: Option<bool>,
+    pub ignore_line_endings: Option<bool>,
+    pub ignore_whitespace: Option<bool>,
+    pub include_hidden_folders: Option<bool>,
+}
+
+impl Default for FolderCompareOptions {
+    fn default() -> Self {
+        Self {
+            deep_hash: Some(false),
+            ignore_line_endings: Some(false),
+            ignore_whitespace: Some(false),
+            include_hidden_folders: Some(false),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FolderEntry {
     pub relative_path: String,
@@ -17,6 +36,7 @@ pub struct FolderEntry {
     pub right_size: Option<u64>,
     pub left_modified: Option<u64>,
     pub right_modified: Option<u64>,
+    pub is_binary: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,4 +1,4 @@
-import { DiffOptions, DiffResult, FolderCompareResult, CsvCompareResult } from '../types/diff';
+import { DiffOptions, DiffResult, FolderCompareResult, FolderCompareOptions, CsvCompareResult } from '../types/diff';
 import { cleanPath } from './pathUtils';
 import { isTauri as checkTauriCore } from '@tauri-apps/api/core';
 
@@ -318,13 +318,23 @@ export async function invokeSaveFile(
 export async function invokeCompareFolders(
   leftPath: string,
   rightPath: string,
-  deepHash: boolean
+  optionsOrDeepHash?: FolderCompareOptions | boolean
 ): Promise<FolderCompareResult> {
   const cLeft = cleanPath(leftPath);
   const cRight = cleanPath(rightPath);
+  const options: FolderCompareOptions =
+    typeof optionsOrDeepHash === 'boolean'
+      ? { deep_hash: optionsOrDeepHash }
+      : optionsOrDeepHash || {};
+
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    return await invoke('compare_folders_cmd', { leftPath: cLeft, rightPath: cRight, deepHash });
+    return await invoke('compare_folders_cmd', {
+      leftPath: cLeft,
+      rightPath: cRight,
+      deepHash: options.deep_hash ?? false,
+      options,
+    });
   }
   return {
     entries: [],

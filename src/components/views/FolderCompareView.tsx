@@ -18,7 +18,7 @@ import {
 import { useTabStore } from '../../stores/tabStore';
 import { useQuickCompareStore } from '../../stores/quickCompareStore';
 import { ContextMenu } from '../common/ContextMenu';
-import { FolderEntry, FolderItemStatus, FolderProgressPayload } from '../../types/diff';
+import { FolderEntry, FolderItemStatus, FolderCompareOptions, FolderProgressPayload } from '../../types/diff';
 import { invokeCompareFolders, invokeCancelFolderComparison, isTauri } from '../../utils/ipc';
 
 export const FolderCompareView: React.FC = () => {
@@ -29,6 +29,9 @@ export const FolderCompareView: React.FC = () => {
   const [filter, setFilter] = useState<'all' | FolderItemStatus>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [deepHash, setDeepHash] = useState(false);
+  const [ignoreLineEndings, setIgnoreLineEndings] = useState(true);
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false);
+  const [includeHiddenFolders, setIncludeHiddenFolders] = useState(false);
   const [scanProgress, setScanProgress] = useState<FolderProgressPayload | null>(null);
   const parentContainerRef = useRef<HTMLDivElement>(null);
 
@@ -113,12 +116,20 @@ export const FolderCompareView: React.FC = () => {
 
   if (!activeTab || activeTab.type !== 'folder') return null;
 
-  const handleRescan = async () => {
+  const handleRescan = async (override?: Partial<FolderCompareOptions>) => {
     if (!leftPath || !rightPath) return;
     setScanProgress(null);
     updateActiveTab({ isComputing: true, diffError: null });
+
+    const opts: FolderCompareOptions = {
+      deep_hash: override?.deep_hash ?? deepHash,
+      ignore_line_endings: override?.ignore_line_endings ?? ignoreLineEndings,
+      ignore_whitespace: override?.ignore_whitespace ?? ignoreWhitespace,
+      include_hidden_folders: override?.include_hidden_folders ?? includeHiddenFolders,
+    };
+
     try {
-      const res = await invokeCompareFolders(leftPath, rightPath, deepHash);
+      const res = await invokeCompareFolders(leftPath, rightPath, opts);
       updateActiveTab({ folderResult: res, isComputing: false, diffError: null });
     } catch (e: any) {
       console.error('Failed to rescan folders:', e);
@@ -136,7 +147,7 @@ export const FolderCompareView: React.FC = () => {
   };
 
   const handleOpenFileCompare = async (entry: FolderEntry) => {
-    if (entry.is_dir) return;
+    if (entry.is_dir || entry.is_binary) return;
     const fullLeft = `${leftPath}/${entry.relative_path}`;
     const fullRight = `${rightPath}/${entry.relative_path}`;
     await openFileCompareTab(fullLeft, fullRight);
@@ -191,24 +202,80 @@ export const FolderCompareView: React.FC = () => {
         <div className="flex items-center space-x-2">
           {/* Rescan Button */}
           <button
-            onClick={handleRescan}
+            onClick={() => handleRescan()}
             disabled={activeTab.isComputing}
             className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded text-xs transition-colors shadow-sm disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${activeTab.isComputing ? 'animate-spin' : ''}`} />
-            <span>Rescan Folders</span>
+            <span>Rescan</span>
           </button>
 
           {/* Deep Hash Check Button Toggle */}
           <button
-            onClick={() => setDeepHash(!deepHash)}
-            className={`px-2.5 py-1.5 rounded text-xs border font-medium transition-colors ${
+            onClick={() => {
+              const next = !deepHash;
+              setDeepHash(next);
+              handleRescan({ deep_hash: next });
+            }}
+            title="Enable byte-level CRC32 hash comparison"
+            className={`px-2 py-1 rounded text-[11px] border font-medium transition-colors ${
               deepHash
                 ? 'bg-neutral-800 text-emerald-400 border-emerald-500/40'
                 : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
             }`}
           >
-            CRC32 Hash: {deepHash ? 'Enabled (Exact)' : 'Disabled (Fast)'}
+            CRC32: {deepHash ? 'ON' : 'OFF'}
+          </button>
+
+          {/* Ignore Line Endings Toggle */}
+          <button
+            onClick={() => {
+              const next = !ignoreLineEndings;
+              setIgnoreLineEndings(next);
+              handleRescan({ ignore_line_endings: next });
+            }}
+            title="Ignore CRLF vs LF line ending differences in text files"
+            className={`px-2 py-1 rounded text-[11px] border font-medium transition-colors ${
+              ignoreLineEndings
+                ? 'bg-neutral-800 text-emerald-400 border-emerald-500/40'
+                : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
+            }`}
+          >
+            CRLF: {ignoreLineEndings ? 'Ignored' : 'Exact'}
+          </button>
+
+          {/* Ignore Whitespace Toggle */}
+          <button
+            onClick={() => {
+              const next = !ignoreWhitespace;
+              setIgnoreWhitespace(next);
+              handleRescan({ ignore_whitespace: next });
+            }}
+            title="Ignore leading and trailing whitespace differences in text files"
+            className={`px-2 py-1 rounded text-[11px] border font-medium transition-colors ${
+              ignoreWhitespace
+                ? 'bg-neutral-800 text-emerald-400 border-emerald-500/40'
+                : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
+            }`}
+          >
+            Whitespace: {ignoreWhitespace ? 'Ignored' : 'Exact'}
+          </button>
+
+          {/* Include Hidden Folders Toggle */}
+          <button
+            onClick={() => {
+              const next = !includeHiddenFolders;
+              setIncludeHiddenFolders(next);
+              handleRescan({ include_hidden_folders: next });
+            }}
+            title="Toggle scanning of hidden folders (.git, .vscode, etc.). Hidden files (.env, .gitignore) are always included."
+            className={`px-2 py-1 rounded text-[11px] border font-medium transition-colors ${
+              includeHiddenFolders
+                ? 'bg-neutral-800 text-emerald-400 border-emerald-500/40'
+                : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
+            }`}
+          >
+            Hidden Folders: {includeHiddenFolders ? 'Included' : 'Excluded'}
           </button>
 
           <div className="h-4 w-px bg-neutral-800 mx-1" />
@@ -397,7 +464,7 @@ export const FolderCompareView: React.FC = () => {
                 Back to Welcome
               </button>
               <button
-                onClick={handleRescan}
+                onClick={() => handleRescan()}
                 className="px-3 py-1.5 rounded text-xs bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-semibold transition-colors flex items-center space-x-1.5"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -506,7 +573,7 @@ export const FolderCompareView: React.FC = () => {
                       key={virtualRow.key}
                       onClick={(e) => handleRowClick(idx, e)}
                       onContextMenu={(e) => handleRowContextMenu(idx, e)}
-                      onDoubleClick={() => handleOpenFileCompare(entry)}
+                      onDoubleClick={() => !entry.is_binary && handleOpenFileCompare(entry)}
                       style={{
                         position: 'absolute',
                         top: 0,
@@ -528,11 +595,16 @@ export const FolderCompareView: React.FC = () => {
                           <File className="w-3.5 h-3.5 text-neutral-400" />
                         )}
                       </div>
-                      <div className="py-1.5 px-3 flex-1 min-w-0 text-neutral-200 truncate">
-                        <span className="font-semibold text-neutral-100">
+                      <div className="py-1.5 px-3 flex-1 min-w-0 text-neutral-200 truncate flex items-center">
+                        <span className="font-semibold text-neutral-100 shrink-0">
                           {entry.relative_path.split('/').pop()}
                         </span>
-                        <span className="text-neutral-500 text-[11px] ml-2">
+                        {entry.is_binary && (
+                          <span className="ml-1.5 px-1 py-0.2 rounded text-[10px] font-mono bg-neutral-800 border border-neutral-700/60 text-neutral-400 shrink-0">
+                            BIN
+                          </span>
+                        )}
+                        <span className="text-neutral-500 text-[11px] ml-2 truncate">
                           {entry.relative_path}
                         </span>
                       </div>
@@ -545,17 +617,23 @@ export const FolderCompareView: React.FC = () => {
                       </div>
                       <div className="py-1.5 px-3 w-32 shrink-0 text-center">
                         {!entry.is_dir && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenFileCompare(entry);
-                            }}
-                            title="Open comparison tab for this file"
-                            className="inline-flex items-center space-x-1 text-[11px] px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-300 hover:bg-sky-500/20 transition-colors"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            <span>Diff Files</span>
-                          </button>
+                          entry.is_binary ? (
+                            <span className="inline-flex items-center text-[10px] px-2 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-neutral-500 font-mono">
+                              Binary
+                            </span>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenFileCompare(entry);
+                              }}
+                              title="Open comparison tab for this file"
+                              className="inline-flex items-center space-x-1 text-[11px] px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-300 hover:bg-sky-500/20 transition-colors"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              <span>Diff Files</span>
+                            </button>
+                          )
                         )}
                       </div>
                     </div>
@@ -598,7 +676,7 @@ export const FolderCompareView: React.FC = () => {
                           },
                         ]
                       : []),
-                    ...(!entry.is_dir && entry.status !== 'OnlyInLeft' && entry.status !== 'OnlyInRight'
+                    ...(!entry.is_dir && !entry.is_binary && entry.status !== 'OnlyInLeft' && entry.status !== 'OnlyInRight'
                       ? [
                           {
                             label: 'Diff this File (Left ↔ Right)',

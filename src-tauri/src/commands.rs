@@ -291,14 +291,21 @@ pub async fn compare_folders_cmd(
     app: tauri::AppHandle,
     left_path: String,
     right_path: String,
-    deep_hash: bool,
+    deep_hash: Option<bool>,
+    options: Option<crate::folder::types::FolderCompareOptions>,
 ) -> Result<FolderCompareResult, String> {
     use tauri::Emitter;
     let clean_l = left_path.trim().trim_matches('"').trim_matches('\'').to_string();
     let clean_r = right_path.trim().trim_matches('"').trim_matches('\'').to_string();
+
+    let mut opts = options.unwrap_or_default();
+    if let Some(dh) = deep_hash {
+        opts.deep_hash = Some(dh);
+    }
+
     tauri::async_runtime::spawn_blocking(move || {
         let app_handle = app.clone();
-        compare_folders(clean_l, clean_r, deep_hash, move |progress| {
+        compare_folders(clean_l, clean_r, opts, move |progress| {
             let _ = app_handle.emit("folder-compare-progress", &progress);
         })
     })

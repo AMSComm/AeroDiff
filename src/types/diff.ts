@@ -58,6 +58,13 @@ export type ViewMode = 'split' | 'unified';
 
 export type FolderItemStatus = 'Identical' | 'Modified' | 'OnlyInLeft' | 'OnlyInRight';
 
+export interface FolderCompareOptions {
+  deep_hash?: boolean;
+  ignore_line_endings?: boolean;
+  ignore_whitespace?: boolean;
+  include_hidden_folders?: boolean;
+}
+
 export interface FolderEntry {
   relative_path: string;
   is_dir: boolean;
@@ -66,6 +73,7 @@ export interface FolderEntry {
   right_size: number | null;
   left_modified: number | null;
   right_modified: number | null;
+  is_binary?: boolean | null;
 }
 
 export interface FolderCompareResult {

@@ -1,8 +1,8 @@
-use super::types::{FolderCompareResult, FolderEntry, FolderItemStatus, FolderProgressPayload};
+use super::types::{FolderCompareOptions, FolderCompareResult, FolderEntry, FolderItemStatus, FolderProgressPayload};
 use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::fs::File;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::Arc;
@@ -24,6 +24,35 @@ struct FileMeta {
     size: u64,
     modified: u64,
     full_path: PathBuf,
+}
+
+pub fn is_known_binary_extension(path: &Path) -> bool {
+    let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+        return false;
+    };
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "ico" | "bmp" | "tiff"
+        | "pdf" | "zip" | "tar" | "gz" | "7z" | "rar" | "xz" | "bz2"
+        | "exe" | "dll" | "dylib" | "so" | "bin" | "iso" | "dmg" | "node"
+        | "mp3" | "mp4" | "mov" | "avi" | "mkv" | "wav" | "ogg" | "flac"
+        | "woff" | "woff2" | "ttf" | "otf" | "eot"
+        | "class" | "pyc" | "o" | "obj" | "a" | "lib"
+        | "db" | "sqlite" | "sqlite3" | "parquet"
+    )
+}
+
+pub fn is_file_binary(path: &Path) -> bool {
+    if is_known_binary_extension(path) {
+        return true;
+    }
+    let Ok(mut f) = File::open(path) else { return true };
+    let mut buf = [0u8; 8192];
+    let Ok(n) = f.read(&mut buf) else { return true };
+    if n == 0 {
+        return false;
+    }
+    buf[..n].iter().any(|&b| b == 0)
 }
 
 fn files_identical(left: &Path, right: &Path, size: u64) -> bool {
@@ -55,8 +84,110 @@ fn files_identical(left: &Path, right: &Path, size: u64) -> bool {
     }
 }
 
+fn compare_text_files_normalized(
+    left_path: &Path,
+    right_path: &Path,
+    ignore_line_endings: bool,
+    ignore_whitespace: bool,
+) -> bool {
+    let Ok(f1) = File::open(left_path) else { return false };
+    let Ok(f2) = File::open(right_path) else { return false };
+
+    let mut reader1 = BufReader::with_capacity(32768, f1);
+    let mut reader2 = BufReader::with_capacity(32768, f2);
+
+    let mut line1 = String::new();
+    let mut line2 = String::new();
+
+    loop {
+        line1.clear();
+        line2.clear();
+
+        let n1 = reader1.read_line(&mut line1).unwrap_or(0);
+        let n2 = reader2.read_line(&mut line2).unwrap_or(0);
+
+        if n1 == 0 && n2 == 0 {
+            return true;
+        }
+
+        if n1 == 0 || n2 == 0 {
+            if ignore_whitespace {
+                if n1 != 0 {
+                    if !line1.trim().is_empty() { return false; }
+                    while let Ok(n) = reader1.read_line(&mut line1) {
+                        if n == 0 { break; }
+                        if !line1.trim().is_empty() { return false; }
+                        line1.clear();
+                    }
+                    return true;
+                }
+                if n2 != 0 {
+                    if !line2.trim().is_empty() { return false; }
+                    while let Ok(n) = reader2.read_line(&mut line2) {
+                        if n == 0 { break; }
+                        if !line2.trim().is_empty() { return false; }
+                        line2.clear();
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        if ignore_whitespace {
+            if line1.trim() != line2.trim() {
+                return false;
+            }
+        } else if ignore_line_endings {
+            let s1 = line1.trim_end_matches(['\r', '\n']);
+            let s2 = line2.trim_end_matches(['\r', '\n']);
+            if s1 != s2 {
+                return false;
+            }
+        } else {
+            if line1 != line2 {
+                return false;
+            }
+        }
+    }
+}
+
+fn compare_file_contents(
+    left_path: &Path,
+    right_path: &Path,
+    left_size: u64,
+    right_size: u64,
+    ignore_line_endings: bool,
+    ignore_whitespace: bool,
+    _deep_hash: bool,
+) -> bool {
+    if left_size == right_size && !ignore_line_endings && !ignore_whitespace {
+        return files_identical(left_path, right_path, left_size);
+    }
+
+    let left_is_bin = is_file_binary(left_path);
+    let right_is_bin = is_file_binary(right_path);
+
+    if left_is_bin || right_is_bin {
+        if left_size != right_size {
+            return false;
+        }
+        return files_identical(left_path, right_path, left_size);
+    }
+
+    if !ignore_line_endings && !ignore_whitespace {
+        if left_size != right_size {
+            return false;
+        }
+        return files_identical(left_path, right_path, left_size);
+    }
+
+    compare_text_files_normalized(left_path, right_path, ignore_line_endings, ignore_whitespace)
+}
+
 fn scan_dir<P: AsRef<Path>, F: Fn(usize) + Send + Sync>(
     root: P,
+    include_hidden_folders: bool,
     on_progress: &F,
 ) -> Result<Vec<(String, FileMeta)>, String> {
     let root_path = root.as_ref();
@@ -72,7 +203,20 @@ fn scan_dir<P: AsRef<Path>, F: Fn(usize) + Send + Sync>(
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
-            name != ".git" && name != "node_modules" && name != "target" && name != ".DS_Store"
+            let is_dir = e.file_type().is_dir();
+
+            // Always ignore internal version control metadata and OS noise
+            if name == ".git" || name == "node_modules" || name == "target" || name == ".DS_Store" {
+                return false;
+            }
+
+            // By default, exclude hidden DIRECTORIES (.vscode, .idea, .github, etc.)
+            // But KEEP hidden FILES (.env, .gitignore, .prettierrc, etc.)
+            if !include_hidden_folders && is_dir && name.starts_with('.') {
+                return false;
+            }
+
+            true
         })
         .filter_map(|e| e.ok())
     {
@@ -132,11 +276,16 @@ fn scan_dir<P: AsRef<Path>, F: Fn(usize) + Send + Sync>(
 pub fn compare_folders<P: AsRef<Path> + Sync, F: Fn(FolderProgressPayload) + Send + Sync + 'static>(
     left_path: P,
     right_path: P,
-    deep_hash_check: bool,
+    options: FolderCompareOptions,
     progress: F,
 ) -> Result<FolderCompareResult, String> {
     CANCEL_REQUESTED.store(false, AtomicOrdering::SeqCst);
     let progress = Arc::new(progress);
+
+    let deep_hash = options.deep_hash.unwrap_or(false);
+    let ignore_line_endings = options.ignore_line_endings.unwrap_or(false);
+    let ignore_whitespace = options.ignore_whitespace.unwrap_or(false);
+    let include_hidden_folders = options.include_hidden_folders.unwrap_or(false);
 
     let left_count = Arc::new(AtomicUsize::new(0));
     let right_count = Arc::new(AtomicUsize::new(0));
@@ -160,7 +309,7 @@ pub fn compare_folders<P: AsRef<Path> + Sync, F: Fn(FolderProgressPayload) + Sen
     // 1. Scan both directories in parallel
     let (left_res, right_res) = rayon::join(
         || {
-            scan_dir(&left_path, &|cnt| {
+            scan_dir(&left_path, include_hidden_folders, &|cnt| {
                 lc_for_l.store(cnt, AtomicOrdering::Relaxed);
                 p_left(FolderProgressPayload {
                     stage: "scanning".to_string(),
@@ -173,7 +322,7 @@ pub fn compare_folders<P: AsRef<Path> + Sync, F: Fn(FolderProgressPayload) + Sen
             })
         },
         || {
-            scan_dir(&right_path, &|cnt| {
+            scan_dir(&right_path, include_hidden_folders, &|cnt| {
                 rc_for_r.store(cnt, AtomicOrdering::Relaxed);
                 p_right(FolderProgressPayload {
                     stage: "scanning".to_string(),
@@ -257,55 +406,74 @@ pub fn compare_folders<P: AsRef<Path> + Sync, F: Fn(FolderProgressPayload) + Sen
     let entries: Vec<FolderEntry> = pairs
         .into_par_iter()
         .map(|pair| match pair {
-            ItemPair::OnlyLeft(l) => FolderEntry {
-                relative_path: l.0.clone(),
-                is_dir: l.1.is_dir,
-                status: FolderItemStatus::OnlyInLeft,
-                left_size: Some(l.1.size),
-                right_size: None,
-                left_modified: Some(l.1.modified),
-                right_modified: None,
-            },
-            ItemPair::OnlyRight(r) => FolderEntry {
-                relative_path: r.0.clone(),
-                is_dir: r.1.is_dir,
-                status: FolderItemStatus::OnlyInRight,
-                left_size: None,
-                right_size: Some(r.1.size),
-                left_modified: None,
-                right_modified: Some(r.1.modified),
-            },
+            ItemPair::OnlyLeft(l) => {
+                let is_bin = if l.1.is_dir { None } else { Some(is_known_binary_extension(&l.1.full_path)) };
+                FolderEntry {
+                    relative_path: l.0.clone(),
+                    is_dir: l.1.is_dir,
+                    status: FolderItemStatus::OnlyInLeft,
+                    left_size: Some(l.1.size),
+                    right_size: None,
+                    left_modified: Some(l.1.modified),
+                    right_modified: None,
+                    is_binary: is_bin,
+                }
+            }
+            ItemPair::OnlyRight(r) => {
+                let is_bin = if r.1.is_dir { None } else { Some(is_known_binary_extension(&r.1.full_path)) };
+                FolderEntry {
+                    relative_path: r.0.clone(),
+                    is_dir: r.1.is_dir,
+                    status: FolderItemStatus::OnlyInRight,
+                    left_size: None,
+                    right_size: Some(r.1.size),
+                    left_modified: None,
+                    right_modified: Some(r.1.modified),
+                    is_binary: is_bin,
+                }
+            }
             ItemPair::Both(l, r) => {
                 let is_dir = l.1.is_dir || r.1.is_dir;
-                let status = if is_dir {
-                    FolderItemStatus::Identical
-                } else if l.1.size != r.1.size {
-                    FolderItemStatus::Modified
-                } else if deep_hash_check {
-                    let cur = hash_counter.fetch_add(1, AtomicOrdering::Relaxed);
-                    if cur % 2_000 == 0 {
-                        p_hash(FolderProgressPayload {
-                            stage: "hashing".to_string(),
-                            left_scanned: l_len,
-                            right_scanned: r_len,
-                            compared: cur,
-                            total: total_items,
-                            message: format!("Verifying file contents ({} / {})...", cur, total_items),
-                        });
-                    }
-
-                    if files_identical(&l.1.full_path, &r.1.full_path, l.1.size) {
-                        FolderItemStatus::Identical
-                    } else {
-                        FolderItemStatus::Modified
-                    }
+                let (status, is_bin) = if is_dir {
+                    (FolderItemStatus::Identical, None)
                 } else {
-                    // Quick check: if size matches, check modification time
-                    if l.1.modified == r.1.modified || l.1.modified == 0 || r.1.modified == 0 {
-                        FolderItemStatus::Identical
+                    let is_bin = is_known_binary_extension(&l.1.full_path) || is_known_binary_extension(&r.1.full_path);
+                    let status = if !deep_hash && !ignore_line_endings && !ignore_whitespace {
+                        if l.1.size != r.1.size {
+                            FolderItemStatus::Modified
+                        } else if l.1.modified == r.1.modified || l.1.modified == 0 || r.1.modified == 0 {
+                            FolderItemStatus::Identical
+                        } else {
+                            FolderItemStatus::Modified
+                        }
                     } else {
-                        FolderItemStatus::Modified
-                    }
+                        let cur = hash_counter.fetch_add(1, AtomicOrdering::Relaxed);
+                        if cur % 2_000 == 0 {
+                            p_hash(FolderProgressPayload {
+                                stage: "comparing".to_string(),
+                                left_scanned: l_len,
+                                right_scanned: r_len,
+                                compared: cur,
+                                total: total_items,
+                                message: format!("Comparing file contents ({} / {})...", cur, total_items),
+                            });
+                        }
+
+                        if compare_file_contents(
+                            &l.1.full_path,
+                            &r.1.full_path,
+                            l.1.size,
+                            r.1.size,
+                            ignore_line_endings,
+                            ignore_whitespace,
+                            deep_hash,
+                        ) {
+                            FolderItemStatus::Identical
+                        } else {
+                            FolderItemStatus::Modified
+                        }
+                    };
+                    (status, Some(is_bin))
                 };
 
                 FolderEntry {
@@ -316,6 +484,7 @@ pub fn compare_folders<P: AsRef<Path> + Sync, F: Fn(FolderProgressPayload) + Sen
                     right_size: Some(r.1.size),
                     left_modified: Some(l.1.modified),
                     right_modified: Some(r.1.modified),
+                    is_binary: is_bin,
                 }
             }
         })
