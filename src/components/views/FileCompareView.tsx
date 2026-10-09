@@ -401,6 +401,7 @@ export const FileCompareView: React.FC = () => {
               onChange={setLeftContent}
               placeholder="Type or paste left content here..."
               isDirty={isDirtyLeft}
+              filePath={leftPath || undefined}
             />
             <CodeEditorPane
               title="Right Editor"
@@ -408,6 +409,7 @@ export const FileCompareView: React.FC = () => {
               onChange={setRightContent}
               placeholder="Type or paste right content here..."
               isDirty={isDirtyRight}
+              filePath={rightPath || undefined}
             />
           </div>
         ) : (

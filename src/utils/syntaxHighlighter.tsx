@@ -9,6 +9,7 @@ import 'prismjs/components/prism-jsx';
 import 'prismjs/components/prism-tsx';
 import 'prismjs/components/prism-python';
 import 'prismjs/components/prism-rust';
+import 'prismjs/components/prism-markup-templating';
 import 'prismjs/components/prism-php';
 import 'prismjs/components/prism-json';
 import 'prismjs/components/prism-yaml';
@@ -176,6 +177,27 @@ export function highlightLineTokens(text: string, language: string | null): Reac
   try {
     const tokens = Prism.tokenize(text, grammar);
     return renderPrismTokens(tokens, 'tok');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Highlights a full document with Prism and returns HTML markup.
+ * Appends a space if text ends with newline so pre/code renders the final line height correctly.
+ * Returns null if language is not supported or content is empty.
+ */
+export function highlightCodeHtml(content: string, language: string | null): string | null {
+  if (!language || !content) return null;
+  const grammar = Prism.languages[language];
+  if (!grammar) return null;
+
+  try {
+    let html = Prism.highlight(content, grammar, language);
+    if (content.endsWith('\n')) {
+      html += ' ';
+    }
+    return html;
   } catch {
     return null;
   }

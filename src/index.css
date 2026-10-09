@@ -36,3 +36,54 @@
   display: none;
   width: 0;
 }
+
+/* AeroDiff Syntax Highlighting Theme - DESIGN.md compliant (Zero Purple) */
+.token.keyword,
+.token.boolean,
+.token.important {
+  color: #38bdf8;
+  font-weight: 500;
+}
+.token.operator,
+.token.entity,
+.token.url {
+  color: #7dd3fc;
+}
+.token.string,
+.token.char,
+.token.attr-value,
+.token.regex {
+  color: #6ee7b7;
+}
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #71717a;
+  font-style: italic;
+}
+.token.function,
+.token.class-name {
+  color: #fcd34d;
+  font-weight: 600;
+}
+.token.number {
+  color: #fbbf24;
+}
+.token.property,
+.token.constant,
+.token.symbol,
+.token.variable {
+  color: #bae6fd;
+}
+.token.punctuation {
+  color: #a1a1aa;
+}
+.token.tag {
+  color: #fb7185;
+  font-weight: 500;
+}
+.token.attr-name {
+  color: #fcd34d;
+}
+

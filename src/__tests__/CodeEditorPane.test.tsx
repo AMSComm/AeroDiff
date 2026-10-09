@@ -74,4 +74,42 @@ describe('CodeEditorPane', () => {
     fireEvent.scroll(textarea, { target: { scrollTop: 120 } });
     expect(gutter.scrollTop).toBe(120);
   });
+
+  it('renders language badge and syntax highlighted backdrop when filePath is provided', () => {
+    const { container } = render(
+      <CodeEditorPane
+        title="TypeScript Editor"
+        content="const greeting = 'hello world';"
+        onChange={() => {}}
+        filePath="example.ts"
+      />
+    );
+
+    // Checks language badge in header
+    expect(screen.getByText('TYPESCRIPT')).toBeDefined();
+
+    // Backdrop <pre><code> should be present and contain token classes
+    const pre = container.querySelector('pre');
+    expect(pre).not.toBeNull();
+    const token = container.querySelector('.token');
+    expect(token).not.toBeNull();
+  });
+
+  it('indents with 2 spaces on Tab key press', () => {
+    const handleChange = vi.fn();
+    const { container } = render(
+      <CodeEditorPane
+        title="Indent Editor"
+        content="line1"
+        onChange={handleChange}
+      />
+    );
+
+    const textarea = container.querySelector('textarea')!;
+    textarea.selectionStart = 0;
+    textarea.selectionEnd = 0;
+    fireEvent.keyDown(textarea, { key: 'Tab' });
+
+    expect(handleChange).toHaveBeenCalledWith('  line1');
+  });
 });
