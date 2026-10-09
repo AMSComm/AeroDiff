@@ -1,10 +1,11 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowRight, ArrowLeft, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { registerScrollLineGetter, useTabStore } from '../../stores/tabStore';
 import { DiffLine, InlineSpan } from '../../types/diff';
 import { MasterVerticalScrollbar } from './MasterVerticalScrollbar';
 import { useDiffSessionLines } from '../../hooks/useDiffSessionLines';
+import { detectLanguage, highlightLineTokens } from '../../utils/syntaxHighlighter';
 
 function getTargetLineNum(
   getLine: (idx: number) => DiffLine | undefined,
@@ -30,11 +31,17 @@ function getTargetLineNum(
   return { isInsert: true, lineNum: 1 };
 }
 
+// Line Height: 20px, Font: JetBrains Mono / SF Mono 13px (per DESIGN.md)
 export const SplitDiffViewer: React.FC = () => {
   const { getActiveTab, mergeChunkAction, updateLineContent, syncActiveChunkFromLine } = useTabStore();
   const activeTab = getActiveTab();
   const diffResult = activeTab?.diffResult;
   const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
+
+  const language = useMemo(
+    () => detectLanguage(activeTab?.leftPath || activeTab?.rightPath || activeTab?.title),
+    [activeTab?.leftPath, activeTab?.rightPath, activeTab?.title]
+  );
 
   const parentContainerRef = useRef<HTMLDivElement>(null);
   const leftContainerRef = useRef<HTMLDivElement>(null);
@@ -388,7 +395,10 @@ export const SplitDiffViewer: React.FC = () => {
       );
     }
 
-    if (!spans || spans.length === 0) return <span>{text}</span>;
+    if (!spans || spans.length === 0) {
+      const highlighted = highlightLineTokens(text, language);
+      return highlighted ? <>{highlighted}</> : <span>{text}</span>;
+    }
 
     const chars = Array.from(text);
     return (
@@ -662,14 +672,20 @@ export const SplitDiffViewer: React.FC = () => {
                     {isChunkStart && line.chunk_id !== null && (
                       <div className="flex items-center space-x-0.5">
                         <button
-                          onClick={() => mergeChunkAction(line.chunk_id!, 'left_to_right')}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            mergeChunkAction(line.chunk_id!, 'left_to_right');
+                          }}
                           title="Merge chunk to Right (->)"
                           className="p-0.5 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-neutral-950 transition-colors"
                         >
                           <ArrowRight className="w-3 h-3" />
                         </button>
                         <button
-                          onClick={() => mergeChunkAction(line.chunk_id!, 'right_to_left')}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            mergeChunkAction(line.chunk_id!, 'right_to_left');
+                          }}
                           title="Merge chunk to Left (<-)"
                           className="p-0.5 rounded bg-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-neutral-950 transition-colors"
                         >

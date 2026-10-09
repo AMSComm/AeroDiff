@@ -6,11 +6,18 @@ import { InlineSpan } from '../../types/diff';
 import { MasterVerticalScrollbar } from './MasterVerticalScrollbar';
 import { useDiffSessionLines } from '../../hooks/useDiffSessionLines';
 
+import { detectLanguage, highlightLineTokens } from '../../utils/syntaxHighlighter';
+
 export const UnifiedDiffViewer: React.FC = () => {
   const { getActiveTab, updateLineContent, syncActiveChunkFromLine } = useTabStore();
   const activeTab = getActiveTab();
   const diffResult = activeTab?.diffResult;
   const activeChunkIndex = activeTab?.activeChunkIndex ?? 0;
+
+  const language = React.useMemo(
+    () => detectLanguage(activeTab?.leftPath || activeTab?.rightPath || activeTab?.title),
+    [activeTab?.leftPath, activeTab?.rightPath, activeTab?.title]
+  );
 
   const parentContainerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -255,7 +262,10 @@ export const UnifiedDiffViewer: React.FC = () => {
       );
     }
 
-    if (!spans || spans.length === 0) return <span>{text}</span>;
+    if (!spans || spans.length === 0) {
+      const highlighted = highlightLineTokens(text, language);
+      return highlighted ? <>{highlighted}</> : <span>{text}</span>;
+    }
 
     const chars = Array.from(text);
     return (

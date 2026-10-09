@@ -818,6 +818,13 @@ pub fn compute_diff_session_from_sources(
                     let l_start = prefix_len + old_index + 1;
                     let r_start = prefix_len + new_index + 1;
 
+                    let chunk_left_lines: Vec<String> = (0..old_len)
+                        .map(|k| {
+                            let (off, len) = left_spans[prefix_len + old_index + k];
+                            String::from_utf8_lossy(&left_bytes[off as usize..(off as usize + len as usize)]).to_string()
+                        })
+                        .collect();
+
                     chunks.push(DiffChunk {
                         chunk_id,
                         left_start: l_start,
@@ -825,7 +832,7 @@ pub fn compute_diff_session_from_sources(
                         right_start: r_start,
                         right_count: 0,
                         chunk_type: DiffChunkType::Deletion,
-                        left_lines: Vec::new(),
+                        left_lines: chunk_left_lines,
                         right_lines: Vec::new(),
                     });
 
@@ -851,6 +858,13 @@ pub fn compute_diff_session_from_sources(
                     let l_start = prefix_len + old_index + 1;
                     let r_start = prefix_len + new_index + 1;
 
+                    let chunk_right_lines: Vec<String> = (0..new_len)
+                        .map(|k| {
+                            let (off, len) = right_spans[prefix_len + new_index + k];
+                            String::from_utf8_lossy(&right_bytes[off as usize..(off as usize + len as usize)]).to_string()
+                        })
+                        .collect();
+
                     chunks.push(DiffChunk {
                         chunk_id,
                         left_start: l_start,
@@ -859,7 +873,7 @@ pub fn compute_diff_session_from_sources(
                         right_count: new_len,
                         chunk_type: DiffChunkType::Addition,
                         left_lines: Vec::new(),
-                        right_lines: Vec::new(),
+                        right_lines: chunk_right_lines,
                     });
 
                     for k in 0..new_len {
@@ -885,6 +899,19 @@ pub fn compute_diff_session_from_sources(
                     let l_start = prefix_len + old_index + 1;
                     let r_start = prefix_len + new_index + 1;
 
+                    let chunk_left_lines: Vec<String> = (0..old_len)
+                        .map(|k| {
+                            let (off, len) = left_spans[prefix_len + old_index + k];
+                            String::from_utf8_lossy(&left_bytes[off as usize..(off as usize + len as usize)]).to_string()
+                        })
+                        .collect();
+                    let chunk_right_lines: Vec<String> = (0..new_len)
+                        .map(|k| {
+                            let (off, len) = right_spans[prefix_len + new_index + k];
+                            String::from_utf8_lossy(&right_bytes[off as usize..(off as usize + len as usize)]).to_string()
+                        })
+                        .collect();
+
                     chunks.push(DiffChunk {
                         chunk_id,
                         left_start: l_start,
@@ -892,8 +919,8 @@ pub fn compute_diff_session_from_sources(
                         right_start: r_start,
                         right_count: new_len,
                         chunk_type: DiffChunkType::Modification,
-                        left_lines: Vec::new(),
-                        right_lines: Vec::new(),
+                        left_lines: chunk_left_lines,
+                        right_lines: chunk_right_lines,
                     });
 
                     let max_len = old_len.max(new_len);

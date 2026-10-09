@@ -27,6 +27,7 @@ import { UnifiedDiffViewer } from '../viewer/UnifiedDiffViewer';
 import { DiffMinimap } from '../viewer/DiffMinimap';
 import { CodeEditorPane } from '../viewer/CodeEditorPane';
 import { CsvCompareView } from './CsvCompareView';
+import { detectLanguage } from '../../utils/syntaxHighlighter';
 
 export const FileCompareView: React.FC = () => {
   const activeTab = useTabStore(
@@ -84,6 +85,7 @@ export const FileCompareView: React.FC = () => {
     ) || activeTab.type === 'csv';
 
   const isTableViewActive = isCsvFile && csvViewMode === 'table';
+  const detectedLang = detectLanguage(leftPath || rightPath);
 
   const getWhitespaceTooltip = () => {
     switch (options.ignore_whitespace) {
@@ -164,18 +166,28 @@ export const FileCompareView: React.FC = () => {
             </div>
           )}
 
-          {/* Live Edit Mode Icon */}
+          {/* Live Edit Mode Switch */}
           {!isTableViewActive && (
             <button
               onClick={toggleEditing}
-              title={isEditing ? 'Switch to Visual Diff' : 'Direct Edit Mode'}
-              className={`p-1.5 rounded border transition-colors ${
+              title={isEditing ? 'Switch to Visual Diff mode' : 'Direct multi-line editor mode'}
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded border text-xs font-medium transition-colors ${
                 isEditing
-                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 shadow-sm'
-                  : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200'
+                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 shadow-xs'
+                  : 'bg-neutral-950 text-neutral-400 border-neutral-800 hover:text-neutral-200 hover:border-neutral-700'
               }`}
             >
-              {isEditing ? <Eye className="w-4 h-4 text-sky-400" /> : <Edit3 className="w-4 h-4" />}
+              {isEditing ? (
+                <>
+                  <Eye className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Visual Diff</span>
+                </>
+              ) : (
+                <>
+                  <Edit3 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Editor Mode</span>
+                </>
+              )}
             </button>
           )}
 
@@ -345,8 +357,13 @@ export const FileCompareView: React.FC = () => {
             <FolderOpen className="w-3.5 h-3.5" />
           </button>
         </div>
-        <div className="hidden lg:flex items-center space-x-1 text-[10px] text-neutral-500 font-sans shrink-0 px-2 select-none">
-          <span>💡 Double-click any line/cell to edit | Right-click path to change</span>
+        <div className="hidden lg:flex items-center space-x-2 text-[10px] text-neutral-500 font-sans shrink-0 px-2 select-none">
+          {detectedLang && (
+            <span className="px-1.5 py-0.5 rounded bg-neutral-800 text-emerald-400 font-mono text-[10px] border border-neutral-700">
+              {detectedLang.toUpperCase()}
+            </span>
+          )}
+          <span>💡 Double-click line to edit inline | Click Editor Mode for multi-line editing</span>
         </div>
         <div
           onContextMenu={(e) => {

@@ -32,7 +32,12 @@ pub fn merge_chunk_left_to_right(
     // Splice in replacement
     right_lines.splice(start_idx..end_idx, replacement);
 
-    right_lines.join("\n")
+    let had_trailing_newline = right_content.ends_with('\n');
+    let mut result = right_lines.join("\n");
+    if had_trailing_newline && !result.is_empty() {
+        result.push('\n');
+    }
+    result
 }
 
 pub fn merge_chunk_right_to_left(
@@ -67,5 +72,10 @@ pub fn merge_chunk_right_to_left(
     // Splice in replacement
     left_lines.splice(start_idx..end_idx, replacement);
 
-    left_lines.join("\n")
+    let had_trailing_newline = left_content.ends_with('\n');
+    let mut result = left_lines.join("\n");
+    if had_trailing_newline && !result.is_empty() {
+        result.push('\n');
+    }
+    result
 }

@@ -361,4 +361,32 @@ mod tests {
         assert_eq!(res.total_right_lines, 10_000);
         assert_eq!(res.chunks.len(), 100);
     }
+
+    #[test]
+    fn test_diff_session_merge_chunk() {
+        use super::super::engine::compute_diff_session_from_sources;
+        use super::super::session::SourceBuffer;
+        use std::sync::Arc;
+
+        let left = "line 1\nleft only line\nline 3\n";
+        let right = "line 1\nright only line\nline 3\n";
+
+        let left_src = SourceBuffer::Memory(Arc::new(left.as_bytes().to_vec()));
+        let right_src = SourceBuffer::Memory(Arc::new(right.as_bytes().to_vec()));
+        let options = DiffOptions::default();
+
+        let res = compute_diff_session_from_sources(left_src, right_src, &options);
+        assert_eq!(res.chunks.len(), 1);
+        let chunk = &res.chunks[0];
+        assert_eq!(chunk.left_lines, vec!["left only line"]);
+        assert_eq!(chunk.right_lines, vec!["right only line"]);
+
+        // Test merge left to right
+        let merged_right = merge_chunk_left_to_right(left, right, chunk.chunk_id, &res);
+        assert_eq!(merged_right, "line 1\nleft only line\nline 3\n");
+
+        // Test merge right to left
+        let merged_left = merge_chunk_right_to_left(left, right, chunk.chunk_id, &res);
+        assert_eq!(merged_left, "line 1\nright only line\nline 3\n");
+    }
 }
