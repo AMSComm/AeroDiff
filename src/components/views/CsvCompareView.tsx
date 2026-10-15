@@ -65,6 +65,136 @@ function splitCsvCells(line: string | null, delimiter: string): string[] {
   return cells;
 }
 
+export interface CsvColumnInfo {
+  name: string;
+  leftIndex: number;
+  rightIndex: number;
+  status: 'common' | 'added' | 'deleted';
+}
+
+/**
+ * Intelligent Schema & Header-aware column alignment.
+ * Detects newly added columns in Right, deleted columns from Left,
+ * and maintains proper cell alignment without shifting columns.
+ */
+export function alignCsvHeaders(leftH: string[], rightH: string[]): CsvColumnInfo[] {
+  if (leftH.length === 0 && rightH.length === 0) {
+    return [{ name: 'Col 1', leftIndex: 0, rightIndex: 0, status: 'common' }];
+  }
+  if (leftH.length === 0) {
+    return rightH.map((name, idx) => ({
+      name: name || `Col ${idx + 1}`,
+      leftIndex: -1,
+      rightIndex: idx,
+      status: 'added' as const,
+    }));
+  }
+  if (rightH.length === 0) {
+    return leftH.map((name, idx) => ({
+      name: name || `Col ${idx + 1}`,
+      leftIndex: idx,
+      rightIndex: -1,
+      status: 'deleted' as const,
+    }));
+  }
+
+  const leftTrimmed = leftH.map((h) => h.trim());
+  const rightTrimmed = rightH.map((h) => h.trim());
+
+  const rightMap = new Map<string, number>();
+  rightTrimmed.forEach((h, idx) => {
+    if (!rightMap.has(h.toLowerCase())) {
+      rightMap.set(h.toLowerCase(), idx);
+    }
+  });
+
+  const hasAnyCommon = leftTrimmed.some((h) => rightMap.has(h.toLowerCase()));
+
+  // Fallback to positional alignment if no headers match at all
+  if (!hasAnyCommon) {
+    const max = Math.max(leftH.length, rightH.length);
+    const result: CsvColumnInfo[] = [];
+    for (let i = 0; i < max; i++) {
+      const lExists = i < leftH.length;
+      const rExists = i < rightH.length;
+      result.push({
+        name: leftH[i] || rightH[i] || `Col ${i + 1}`,
+        leftIndex: lExists ? i : -1,
+        rightIndex: rExists ? i : -1,
+        status: lExists && rExists ? 'common' : rExists ? 'added' : 'deleted',
+      });
+    }
+    return result;
+  }
+
+  const leftMap = new Map<string, number>();
+  leftTrimmed.forEach((h, idx) => {
+    if (!leftMap.has(h.toLowerCase())) {
+      leftMap.set(h.toLowerCase(), idx);
+    }
+  });
+
+  const columns: CsvColumnInfo[] = [];
+  const handledRight = new Set<number>();
+
+  for (let lIdx = 0; lIdx < leftTrimmed.length; lIdx++) {
+    const lHeader = leftTrimmed[lIdx];
+    const rIdx = rightMap.get(lHeader.toLowerCase()) ?? -1;
+
+    if (rIdx >= 0) {
+      // Any unhandled right headers before rIdx in rightH should be inserted before this column
+      for (let r = 0; r < rIdx; r++) {
+        if (!handledRight.has(r)) {
+          const rH = rightTrimmed[r];
+          if (!leftMap.has(rH.toLowerCase())) {
+            columns.push({
+              name: rightH[r] || `Col ${r + 1}`,
+              leftIndex: -1,
+              rightIndex: r,
+              status: 'added',
+            });
+            handledRight.add(r);
+          }
+        }
+      }
+
+      columns.push({
+        name: leftH[lIdx] || rightH[rIdx] || `Col ${lIdx + 1}`,
+        leftIndex: lIdx,
+        rightIndex: rIdx,
+        status: 'common',
+      });
+      handledRight.add(rIdx);
+    } else {
+      // Column exists only in left
+      columns.push({
+        name: leftH[lIdx] || `Col ${lIdx + 1}`,
+        leftIndex: lIdx,
+        rightIndex: -1,
+        status: 'deleted',
+      });
+    }
+  }
+
+  // Any remaining unhandled columns in right (appended at end)
+  for (let r = 0; r < rightH.length; r++) {
+    if (!handledRight.has(r)) {
+      const rH = rightTrimmed[r];
+      if (!leftMap.has(rH.toLowerCase())) {
+        columns.push({
+          name: rightH[r] || `Col ${r + 1}`,
+          leftIndex: -1,
+          rightIndex: r,
+          status: 'added',
+        });
+        handledRight.add(r);
+      }
+    }
+  }
+
+  return columns;
+}
+
 export const CsvCompareView: React.FC = () => {
   const activeTab = useTabStore(
     (state) => state.tabs.find((t) => t.id === state.activeTabId) || state.tabs[0]
@@ -122,18 +252,16 @@ export const CsvCompareView: React.FC = () => {
     return ',';
   }, [diffResult, getLine]);
 
-  // Derive column headers and count from the first line
-  const { maxCols, columnHeaders } = useMemo(() => {
+  // Derive schema-aware aligned columns from the first line
+  const columns = useMemo(() => {
     const headerLine = getLine(0) || diffResult?.lines?.[0];
     const leftH = headerLine?.left_text ? splitCsvCells(headerLine.left_text, delimiter) : [];
     const rightH = headerLine?.right_text ? splitCsvCells(headerLine.right_text, delimiter) : [];
-    const max = Math.max(1, leftH.length, rightH.length);
-    const headers: string[] = [];
-    for (let c = 0; c < max; c++) {
-      headers.push(leftH[c] || rightH[c] || `Col ${c + 1}`);
-    }
-    return { maxCols: max, columnHeaders: headers };
+    return alignCsvHeaders(leftH, rightH);
   }, [diffResult, delimiter, getLine]);
+
+  const maxCols = columns.length;
+  const columnHeaders = useMemo(() => columns.map((c) => c.name), [columns]);
 
   const colWidth = 140;
 
@@ -144,18 +272,33 @@ export const CsvCompareView: React.FC = () => {
       if (line.line_type === 'Modified' && line.left_text && line.right_text) {
         const leftCells = splitCsvCells(line.left_text, delimiter);
         const rightCells = splitCsvCells(line.right_text, delimiter);
-        for (let c = 0; c < maxCols; c++) {
-          const lv = leftCells[c] ?? '';
-          const rv = rightCells[c] ?? '';
-          if (!areCellsEqual(lv, rv, options)) {
-            indices.add(c);
+        for (let c = 0; c < columns.length; c++) {
+          const col = columns[c];
+          if (col.status === 'common') {
+            const lv = leftCells[col.leftIndex] ?? '';
+            const rv = rightCells[col.rightIndex] ?? '';
+            if (!areCellsEqual(lv, rv, options)) {
+              indices.add(c);
+            }
           }
         }
       }
       if (indices.size >= 12) break;
     }
     return Array.from(indices).sort((a, b) => a - b);
-  }, [lineMap, delimiter, maxCols, options]);
+  }, [lineMap, delimiter, columns, options]);
+
+  const addedColIndices = useMemo(() => {
+    return columns
+      .map((col, idx) => (col.status === 'added' ? idx : -1))
+      .filter((idx) => idx >= 0);
+  }, [columns]);
+
+  const deletedColIndices = useMemo(() => {
+    return columns
+      .map((col, idx) => (col.status === 'deleted' ? idx : -1))
+      .filter((idx) => idx >= 0);
+  }, [columns]);
 
   // Virtualizer for 60fps performance on large tables
   const rowVirtualizer = useVirtualizer({
@@ -382,10 +525,16 @@ export const CsvCompareView: React.FC = () => {
           const leftCells = line.left_text !== null ? splitCsvCells(line.left_text, delimiter) : null;
           const rightCells = line.right_text !== null ? splitCsvCells(line.right_text, delimiter) : null;
           if (leftCells && rightCells) {
-            for (let c = 0; c < maxCols; c++) {
-              const lv = leftCells[c] ?? '';
-              const rv = rightCells[c] ?? '';
-              if (!areCellsEqual(lv, rv, options)) {
+            for (let c = 0; c < columns.length; c++) {
+              const col = columns[c];
+              if (col.status === 'common') {
+                const lv = leftCells[col.leftIndex] ?? '';
+                const rv = rightCells[col.rightIndex] ?? '';
+                if (!areCellsEqual(lv, rv, options)) {
+                  scrollToColumn(c);
+                  break;
+                }
+              } else if (col.status === 'added' || col.status === 'deleted') {
                 scrollToColumn(c);
                 break;
               }
@@ -402,7 +551,7 @@ export const CsvCompareView: React.FC = () => {
     requestRange,
     getLine,
     delimiter,
-    maxCols,
+    columns,
     options,
     scrollToColumn,
   ]);
@@ -422,10 +571,16 @@ export const CsvCompareView: React.FC = () => {
         const leftCells = line.left_text !== null ? splitCsvCells(line.left_text, delimiter) : null;
         const rightCells = line.right_text !== null ? splitCsvCells(line.right_text, delimiter) : null;
         if (leftCells && rightCells) {
-          for (let c = 0; c < maxCols; c++) {
-            const lv = leftCells[c] ?? '';
-            const rv = rightCells[c] ?? '';
-            if (!areCellsEqual(lv, rv, options)) {
+          for (let c = 0; c < columns.length; c++) {
+            const col = columns[c];
+            if (col.status === 'common') {
+              const lv = leftCells[col.leftIndex] ?? '';
+              const rv = rightCells[col.rightIndex] ?? '';
+              if (!areCellsEqual(lv, rv, options)) {
+                scrollToColumn(c);
+                break;
+              }
+            } else if (col.status === 'added' || col.status === 'deleted') {
               scrollToColumn(c);
               break;
             }
@@ -433,21 +588,27 @@ export const CsvCompareView: React.FC = () => {
         }
       }
     }
-  }, [activeTab?.chunkJumpNonce, activeChunkIndex, lineMap, getLine, delimiter, maxCols, options, scrollToColumn, diffResult]);
+  }, [activeTab?.chunkJumpNonce, activeChunkIndex, lineMap, getLine, delimiter, columns, options, scrollToColumn, diffResult]);
 
   // Cell edit trigger
   const startEditing = useCallback(
     (side: 'left' | 'right', rowIndex: number, colIndex: number, defaultVal?: string) => {
+      const col = columns[colIndex];
+      if (!col) return;
+      if (side === 'left' && col.leftIndex === -1) return;
+      if (side === 'right' && col.rightIndex === -1) return;
+
       const line = getLine(rowIndex);
       if (!line) return;
       const text = side === 'left' ? line.left_text : line.right_text;
       if (text === null) return;
       const cells = splitCsvCells(text, delimiter);
-      const currentVal = defaultVal !== undefined ? defaultVal : cells[colIndex] ?? '';
+      const targetIdx = side === 'left' ? col.leftIndex : col.rightIndex;
+      const currentVal = defaultVal !== undefined ? defaultVal : cells[targetIdx] ?? '';
       setEditingCell({ side, rowIndex, colIndex });
       setEditValue(currentVal);
     },
-    [getLine, delimiter]
+    [columns, getLine, delimiter]
   );
 
   // Cell edit commit
@@ -457,6 +618,11 @@ export const CsvCompareView: React.FC = () => {
       isCommittingRef.current = true;
 
       try {
+        const col = columns[colIndex];
+        if (!col) return;
+        const targetColIdx = side === 'left' ? col.leftIndex : col.rightIndex;
+        if (targetColIdx === -1) return;
+
         const line = getLine(rowIndex);
         if (!line) return;
         const lineNum = side === 'left' ? line.left_line_num : line.right_line_num;
@@ -470,13 +636,13 @@ export const CsvCompareView: React.FC = () => {
 
         const origLine = fileLines[lineIdx];
         const cells = splitCsvCells(origLine, delimiter);
-        while (cells.length <= colIndex) {
+        while (cells.length <= targetColIdx) {
           cells.push('');
         }
 
-        if (cells[colIndex] === valToSave) return;
+        if (cells[targetColIdx] === valToSave) return;
 
-        cells[colIndex] = valToSave;
+        cells[targetColIdx] = valToSave;
 
         const encodedLine = cells
           .map((c) => {
@@ -502,7 +668,7 @@ export const CsvCompareView: React.FC = () => {
         }, 100);
       }
     },
-    [delimiter, getLine, setLeftContent, setRightContent]
+    [columns, delimiter, getLine, setLeftContent, setRightContent]
   );
 
   // Key navigation inside cell editor (Enter, Tab, Esc)
@@ -606,10 +772,16 @@ export const CsvCompareView: React.FC = () => {
         handled = true;
       } else if (e.key === 'Enter' || e.key === 'F2') {
         e.preventDefault();
+        const col = columns[selectedCell.colIndex];
+        if (!col) return;
+        if (selectedCell.side === 'left' && col.leftIndex === -1) return;
+        if (selectedCell.side === 'right' && col.rightIndex === -1) return;
+
         const line = getLine(selectedCell.rowIndex);
         const text = selectedCell.side === 'left' ? line?.left_text : line?.right_text;
         const cells = text ? splitCsvCells(text, delimiter) : [];
-        const val = cells[selectedCell.colIndex] ?? '';
+        const targetIdx = selectedCell.side === 'left' ? col.leftIndex : col.rightIndex;
+        const val = cells[targetIdx] ?? '';
         startEditing(selectedCell.side, selectedCell.rowIndex, selectedCell.colIndex, val);
         return;
       } else if (e.key === 'Escape') {
@@ -631,6 +803,7 @@ export const CsvCompareView: React.FC = () => {
     editingCell,
     totalLines,
     maxCols,
+    columns,
     scrollCellIntoView,
     getLine,
     delimiter,
@@ -650,25 +823,74 @@ export const CsvCompareView: React.FC = () => {
         </div>
       )}
 
-      {/* Changed Columns Quick Jump Bar */}
-      {changedColIndices.length > 0 && (
+      {/* Schema & Differences Summary Bar */}
+      {(addedColIndices.length > 0 || deletedColIndices.length > 0 || changedColIndices.length > 0) && (
         <div className="bg-neutral-900/90 border-b border-neutral-800 px-3 py-1 flex items-center space-x-2 text-[11px] shrink-0 overflow-x-auto">
-          <span className="text-amber-400 font-semibold whitespace-nowrap flex items-center space-x-1">
-            <span>⚠️ Changed Columns ({changedColIndices.length}):</span>
-          </span>
-          <div className="flex items-center space-x-1.5 overflow-x-auto py-0.5">
-            {changedColIndices.map((colIdx) => (
-              <button
-                key={colIdx}
-                onClick={() => scrollToColumn(colIdx)}
-                className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-200 hover:bg-amber-500/30 hover:border-amber-400 transition-colors flex items-center space-x-1 font-mono text-[11px] whitespace-nowrap cursor-pointer shadow-xs"
-                title={`Jump horizontally to ${columnHeaders[colIdx] || `Col ${colIdx + 1}`}`}
-              >
-                <span className="font-semibold">{columnHeaders[colIdx] || `Col ${colIdx + 1}`}</span>
-                <span className="text-[9px] text-amber-400/80">(Col {colIdx + 1})</span>
-              </button>
-            ))}
-          </div>
+          {/* Added Columns Chips */}
+          {addedColIndices.length > 0 && (
+            <div className="flex items-center space-x-1 shrink-0">
+              <span className="text-emerald-400 font-semibold whitespace-nowrap flex items-center space-x-1">
+                <span>+ Added Columns ({addedColIndices.length}):</span>
+              </span>
+              <div className="flex items-center space-x-1 overflow-x-auto py-0.5">
+                {addedColIndices.map((colIdx) => (
+                  <button
+                    key={colIdx}
+                    onClick={() => scrollToColumn(colIdx)}
+                    className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/30 hover:border-emerald-400 transition-colors flex items-center space-x-1 font-mono text-[11px] whitespace-nowrap cursor-pointer shadow-xs"
+                    title={`Jump horizontally to added column: ${columns[colIdx]?.name} (exists in Right only)`}
+                  >
+                    <span className="font-semibold">{columns[colIdx]?.name}</span>
+                    <span className="text-[9px] text-emerald-400/80">(Right only)</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Deleted Columns Chips */}
+          {deletedColIndices.length > 0 && (
+            <div className="flex items-center space-x-1 shrink-0">
+              <span className="text-rose-400 font-semibold whitespace-nowrap flex items-center space-x-1">
+                <span>- Deleted Columns ({deletedColIndices.length}):</span>
+              </span>
+              <div className="flex items-center space-x-1 overflow-x-auto py-0.5">
+                {deletedColIndices.map((colIdx) => (
+                  <button
+                    key={colIdx}
+                    onClick={() => scrollToColumn(colIdx)}
+                    className="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30 hover:border-rose-400 transition-colors flex items-center space-x-1 font-mono text-[11px] whitespace-nowrap cursor-pointer shadow-xs"
+                    title={`Jump horizontally to deleted column: ${columns[colIdx]?.name} (exists in Left only)`}
+                  >
+                    <span className="font-semibold">{columns[colIdx]?.name}</span>
+                    <span className="text-[9px] text-rose-400/80">(Left only)</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Changed Columns Chips */}
+          {changedColIndices.length > 0 && (
+            <div className="flex items-center space-x-1 shrink-0">
+              <span className="text-amber-400 font-semibold whitespace-nowrap flex items-center space-x-1">
+                <span>⚠️ Changed Cells ({changedColIndices.length}):</span>
+              </span>
+              <div className="flex items-center space-x-1 overflow-x-auto py-0.5">
+                {changedColIndices.map((colIdx) => (
+                  <button
+                    key={colIdx}
+                    onClick={() => scrollToColumn(colIdx)}
+                    className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-200 hover:bg-amber-500/30 hover:border-amber-400 transition-colors flex items-center space-x-1 font-mono text-[11px] whitespace-nowrap cursor-pointer shadow-xs"
+                    title={`Jump horizontally to changed column ${columns[colIdx]?.name}`}
+                  >
+                    <span className="font-semibold">{columns[colIdx]?.name}</span>
+                    <span className="text-[9px] text-amber-400/80">(Col {colIdx + 1})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -707,26 +929,49 @@ export const CsvCompareView: React.FC = () => {
                     #
                   </div>
                   <div className="flex-1 flex">
-                    {columnHeaders.map((h, idx) => {
+                    {columns.map((col, idx) => {
                       const hasDiff = changedColIndices.includes(idx);
+                      const isAddedCol = col.status === 'added';
+                      const isDeletedCol = col.status === 'deleted';
+
                       return (
                         <div
                           key={idx}
-                          onClick={() => hasDiff && scrollToColumn(idx)}
+                          onClick={() => (hasDiff || isAddedCol || isDeletedCol) && scrollToColumn(idx)}
                           style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
                           className={`px-2 py-1.5 truncate border-r border-neutral-800/60 transition-colors flex items-center justify-between ${
-                            hasDiff
+                            isAddedCol
+                              ? 'bg-emerald-500/15 text-emerald-200 font-bold border-b-2 border-b-emerald-500 cursor-pointer hover:bg-emerald-500/25'
+                              : isDeletedCol
+                              ? 'bg-rose-500/15 text-rose-200 font-bold border-b-2 border-b-rose-500 cursor-pointer hover:bg-rose-500/25'
+                              : hasDiff
                               ? 'bg-amber-500/15 text-amber-200 font-bold border-b-2 border-b-amber-500 cursor-pointer hover:bg-amber-500/25'
                               : 'text-neutral-400'
                           }`}
-                          title={hasDiff ? `${h} (Contains differences - Click to snap horizontally)` : h}
+                          title={
+                            isAddedCol
+                              ? `${col.name} (Added in Right - Click to snap)`
+                              : isDeletedCol
+                              ? `${col.name} (Deleted in Right - Click to snap)`
+                              : hasDiff
+                              ? `${col.name} (Contains differences - Click to snap)`
+                              : col.name
+                          }
                         >
-                          <span className="truncate">{h}</span>
-                          {hasDiff && (
+                          <span className="truncate">{col.name}</span>
+                          {isAddedCol ? (
+                            <span className="ml-1 text-[9px] px-1 py-0.2 bg-emerald-500/30 text-emerald-300 rounded font-mono font-bold shrink-0">
+                              +COL
+                            </span>
+                          ) : isDeletedCol ? (
+                            <span className="ml-1 text-[9px] px-1 py-0.2 bg-rose-500/30 text-rose-300 rounded font-mono font-bold shrink-0">
+                              -COL
+                            </span>
+                          ) : hasDiff ? (
                             <span className="ml-1 text-[9px] px-1 py-0.2 bg-amber-500/30 text-amber-300 rounded font-mono font-bold shrink-0">
                               DIFF
                             </span>
-                          )}
+                          ) : null}
                         </div>
                       );
                     })}
@@ -766,16 +1011,18 @@ export const CsvCompareView: React.FC = () => {
                   const isModified = line.line_type === 'Modified';
                   const isDeleted = line.line_type === 'Deleted';
 
-                  const hasAnyDiffCell =
+                  // Only highlight row as Modified if there is a difference in a COMMON column!
+                  const hasCommonDiffCell =
                     isModified &&
                     leftCells !== null &&
                     rightCells !== null &&
-                    Array.from({ length: maxCols }).some((_, cIdx) => {
-                      const lv = leftCells[cIdx] ?? '';
-                      const rv = rightCells?.[cIdx] ?? '';
+                    columns.some((col) => {
+                      if (col.status !== 'common') return false;
+                      const lv = leftCells[col.leftIndex] ?? '';
+                      const rv = rightCells[col.rightIndex] ?? '';
                       return !areCellsEqual(lv, rv, options);
                     });
-                  const showModifiedBg = isModified && hasAnyDiffCell;
+                  const showModifiedBg = isModified && hasCommonDiffCell;
 
                   return (
                     <div
@@ -804,10 +1051,33 @@ export const CsvCompareView: React.FC = () => {
                       {/* Left Cells */}
                       <div className="flex-1 flex">
                         {leftCells !== null ? (
-                          Array.from({ length: maxCols }).map((_, cIdx) => {
-                            const cellVal = leftCells[cIdx] ?? '';
-                            const rightVal = rightCells?.[cIdx] ?? '';
-                            const isDiffCell = isModified && !areCellsEqual(cellVal, rightVal, options);
+                          columns.map((col, cIdx) => {
+                            if (col.status === 'added' || col.leftIndex === -1) {
+                              return (
+                                <div
+                                  key={cIdx}
+                                  data-testid="csv-cell"
+                                  style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
+                                  className="px-2 py-1 truncate border-r border-neutral-800/40 leading-5 select-none bg-neutral-900/40 text-neutral-600 italic text-[11px] text-center"
+                                  title="Column not present in Left file"
+                                >
+                                  —
+                                </div>
+                              );
+                            }
+
+                            const cellVal = leftCells[col.leftIndex] ?? '';
+                            const rightVal =
+                              rightCells !== null && col.rightIndex >= 0
+                                ? rightCells[col.rightIndex] ?? ''
+                                : null;
+
+                            const isDiffCell =
+                              col.status === 'common' &&
+                              isModified &&
+                              rightVal !== null &&
+                              !areCellsEqual(cellVal, rightVal, options);
+
                             const isEditing =
                               editingCell?.side === 'left' &&
                               editingCell?.rowIndex === virtualRow.index &&
@@ -844,6 +1114,8 @@ export const CsvCompareView: React.FC = () => {
                               selectedCell?.rowIndex === virtualRow.index &&
                               selectedCell?.colIndex === cIdx;
 
+                            const isColDeleted = col.status === 'deleted';
+
                             return (
                               <div
                                 key={cIdx}
@@ -863,8 +1135,8 @@ export const CsvCompareView: React.FC = () => {
                                       : 'bg-emerald-500/25 text-white ring-2 ring-emerald-400 font-semibold z-20 shadow-md'
                                     : isDiffCell
                                     ? 'bg-amber-500/30 text-amber-100 ring-1 ring-amber-400/70 font-semibold shadow-xs hover:bg-amber-500/40'
-                                    : isDeleted
-                                    ? 'text-rose-200 hover:bg-neutral-800/50'
+                                    : isColDeleted || isDeleted
+                                    ? 'bg-rose-500/15 text-rose-200 hover:bg-rose-500/25'
                                     : 'text-neutral-300 hover:bg-neutral-800/50'
                                 }`}
                               >
@@ -1000,26 +1272,49 @@ export const CsvCompareView: React.FC = () => {
                     #
                   </div>
                   <div className="flex-1 flex">
-                    {columnHeaders.map((h, idx) => {
+                    {columns.map((col, idx) => {
                       const hasDiff = changedColIndices.includes(idx);
+                      const isAddedCol = col.status === 'added';
+                      const isDeletedCol = col.status === 'deleted';
+
                       return (
                         <div
                           key={idx}
-                          onClick={() => hasDiff && scrollToColumn(idx)}
+                          onClick={() => (hasDiff || isAddedCol || isDeletedCol) && scrollToColumn(idx)}
                           style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
                           className={`px-2 py-1.5 truncate border-r border-neutral-800/60 transition-colors flex items-center justify-between ${
-                            hasDiff
+                            isAddedCol
+                              ? 'bg-emerald-500/15 text-emerald-200 font-bold border-b-2 border-b-emerald-500 cursor-pointer hover:bg-emerald-500/25'
+                              : isDeletedCol
+                              ? 'bg-rose-500/15 text-rose-200 font-bold border-b-2 border-b-rose-500 cursor-pointer hover:bg-rose-500/25'
+                              : hasDiff
                               ? 'bg-amber-500/15 text-amber-200 font-bold border-b-2 border-b-amber-500 cursor-pointer hover:bg-amber-500/25'
                               : 'text-neutral-400'
                           }`}
-                          title={hasDiff ? `${h} (Contains differences - Click to snap horizontally)` : h}
+                          title={
+                            isAddedCol
+                              ? `${col.name} (Added in Right - Click to snap)`
+                              : isDeletedCol
+                              ? `${col.name} (Deleted in Right - Click to snap)`
+                              : hasDiff
+                              ? `${col.name} (Contains differences - Click to snap)`
+                              : col.name
+                          }
                         >
-                          <span className="truncate">{h}</span>
-                          {hasDiff && (
+                          <span className="truncate">{col.name}</span>
+                          {isAddedCol ? (
+                            <span className="ml-1 text-[9px] px-1 py-0.2 bg-emerald-500/30 text-emerald-300 rounded font-mono font-bold shrink-0">
+                              +COL
+                            </span>
+                          ) : isDeletedCol ? (
+                            <span className="ml-1 text-[9px] px-1 py-0.2 bg-rose-500/30 text-rose-300 rounded font-mono font-bold shrink-0">
+                              -COL
+                            </span>
+                          ) : hasDiff ? (
                             <span className="ml-1 text-[9px] px-1 py-0.2 bg-amber-500/30 text-amber-300 rounded font-mono font-bold shrink-0">
                               DIFF
                             </span>
-                          )}
+                          ) : null}
                         </div>
                       );
                     })}
@@ -1059,16 +1354,18 @@ export const CsvCompareView: React.FC = () => {
                   const isModified = line.line_type === 'Modified';
                   const isAdded = line.line_type === 'Added';
 
-                  const hasAnyDiffCell =
+                  // Only highlight row as Modified if there is a difference in a COMMON column!
+                  const hasCommonDiffCell =
                     isModified &&
                     leftCells !== null &&
                     rightCells !== null &&
-                    Array.from({ length: maxCols }).some((_, cIdx) => {
-                      const lv = leftCells[cIdx] ?? '';
-                      const rv = rightCells?.[cIdx] ?? '';
+                    columns.some((col) => {
+                      if (col.status !== 'common') return false;
+                      const lv = leftCells[col.leftIndex] ?? '';
+                      const rv = rightCells[col.rightIndex] ?? '';
                       return !areCellsEqual(lv, rv, options);
                     });
-                  const showModifiedBg = isModified && hasAnyDiffCell;
+                  const showModifiedBg = isModified && hasCommonDiffCell;
 
                   return (
                     <div
@@ -1097,10 +1394,33 @@ export const CsvCompareView: React.FC = () => {
                       {/* Right Cells */}
                       <div className="flex-1 flex">
                         {rightCells !== null ? (
-                          Array.from({ length: maxCols }).map((_, cIdx) => {
-                            const cellVal = rightCells[cIdx] ?? '';
-                            const leftVal = leftCells?.[cIdx] ?? '';
-                            const isDiffCell = isModified && !areCellsEqual(leftVal, cellVal, options);
+                          columns.map((col, cIdx) => {
+                            if (col.status === 'deleted' || col.rightIndex === -1) {
+                              return (
+                                <div
+                                  key={cIdx}
+                                  data-testid="csv-cell"
+                                  style={{ width: `${colWidth}px`, minWidth: `${colWidth}px` }}
+                                  className="px-2 py-1 truncate border-r border-neutral-800/40 leading-5 select-none bg-neutral-900/40 text-neutral-600 italic text-[11px] text-center"
+                                  title="Column not present in Right file"
+                                >
+                                  —
+                                </div>
+                              );
+                            }
+
+                            const cellVal = rightCells[col.rightIndex] ?? '';
+                            const leftVal =
+                              leftCells !== null && col.leftIndex >= 0
+                                ? leftCells[col.leftIndex] ?? ''
+                                : null;
+
+                            const isDiffCell =
+                              col.status === 'common' &&
+                              isModified &&
+                              leftVal !== null &&
+                              !areCellsEqual(leftVal, cellVal, options);
+
                             const isEditing =
                               editingCell?.side === 'right' &&
                               editingCell?.rowIndex === virtualRow.index &&
@@ -1137,6 +1457,8 @@ export const CsvCompareView: React.FC = () => {
                               selectedCell?.rowIndex === virtualRow.index &&
                               selectedCell?.colIndex === cIdx;
 
+                            const isColAdded = col.status === 'added';
+
                             return (
                               <div
                                 key={cIdx}
@@ -1156,8 +1478,8 @@ export const CsvCompareView: React.FC = () => {
                                       : 'bg-emerald-500/25 text-white ring-2 ring-emerald-400 font-semibold z-20 shadow-md'
                                     : isDiffCell
                                     ? 'bg-amber-500/30 text-amber-100 ring-1 ring-amber-400/70 font-semibold shadow-xs hover:bg-amber-500/40'
-                                    : isAdded
-                                    ? 'text-emerald-200 hover:bg-neutral-800/50'
+                                    : isColAdded || isAdded
+                                    ? 'bg-emerald-500/15 text-emerald-300 font-medium hover:bg-emerald-500/25'
                                     : 'text-neutral-300 hover:bg-neutral-800/50'
                                 }`}
                               >

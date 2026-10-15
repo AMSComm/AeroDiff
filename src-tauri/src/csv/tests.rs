@@ -94,4 +94,25 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_compare_csv_added_columns() {
+        let csv1 = "id,name\n1,Apple\n2,Banana";
+        let csv2 = "id,name,color,price\n1,Apple,Red,10\n2,Banana,Yellow,20";
+
+        let result = compare_csv(csv1, csv2, Some("id"), None).unwrap();
+        assert_eq!(result.headers, vec!["id", "name", "color", "price"]);
+        assert_eq!(result.total_rows, 2);
+
+        let row1 = &result.rows[0];
+        let name_cell = row1.cells.iter().find(|c| c.col_name == "name").unwrap();
+        assert!(!name_cell.is_diff);
+        assert_eq!(name_cell.left_val.as_deref(), Some("Apple"));
+        assert_eq!(name_cell.right_val.as_deref(), Some("Apple"));
+
+        let color_cell = row1.cells.iter().find(|c| c.col_name == "color").unwrap();
+        assert!(color_cell.is_diff);
+        assert_eq!(color_cell.left_val, None);
+        assert_eq!(color_cell.right_val.as_deref(), Some("Red"));
+    }
 }

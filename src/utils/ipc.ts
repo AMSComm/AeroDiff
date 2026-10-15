@@ -394,33 +394,41 @@ function computeLocalCsvDiff(
     if (lRow && rRow) {
       let isDiff = false;
       const cells: import('../types/diff').CsvCellDiff[] = headers.map((h, colIdx) => {
-        const lv = lRow[colIdx] ?? '';
-        const rv = rRow[colIdx] ?? '';
+        const lColIdx = leftHeaders.indexOf(h);
+        const rColIdx = rightHeaders.indexOf(h);
+        const lv = lColIdx >= 0 && lRow ? (lRow[lColIdx] ?? '') : null;
+        const rv = rColIdx >= 0 && rRow ? (rRow[rColIdx] ?? '') : null;
 
-        let cellDiff = lv !== rv;
-        if (options) {
-          let lNorm = lv;
-          let rNorm = rv;
-          if (options.ignore_case) {
-            lNorm = lNorm.toLowerCase();
-            rNorm = rNorm.toLowerCase();
+        let cellDiff = false;
+        if (lv !== null && rv !== null) {
+          cellDiff = lv !== rv;
+          if (options) {
+            let lNorm = lv;
+            let rNorm = rv;
+            if (options.ignore_case) {
+              lNorm = lNorm.toLowerCase();
+              rNorm = rNorm.toLowerCase();
+            }
+            if (options.ignore_whitespace === 'All') {
+              lNorm = lNorm.replace(/\s+/g, '');
+              rNorm = rNorm.replace(/\s+/g, '');
+            } else if (options.ignore_whitespace === 'LeadingAndTrailing') {
+              lNorm = lNorm.trim();
+              rNorm = rNorm.trim();
+            }
+            cellDiff = lNorm !== rNorm;
           }
-          if (options.ignore_whitespace === 'All') {
-            lNorm = lNorm.replace(/\s+/g, '');
-            rNorm = rNorm.replace(/\s+/g, '');
-          } else if (options.ignore_whitespace === 'LeadingAndTrailing') {
-            lNorm = lNorm.trim();
-            rNorm = rNorm.trim();
-          }
-          cellDiff = lNorm !== rNorm;
+        } else {
+          // Missing column in one of the sides
+          cellDiff = true;
         }
 
         if (cellDiff) isDiff = true;
         return {
           col_index: colIdx,
           col_name: h,
-          left_val: lv || null,
-          right_val: rv || null,
+          left_val: lv,
+          right_val: rv,
           is_diff: cellDiff,
         };
       });
@@ -445,26 +453,32 @@ function computeLocalCsvDiff(
       rows.push({
         key: `#${i + 1}`,
         status: 'Deleted',
-        cells: headers.map((h, colIdx) => ({
-          col_index: colIdx,
-          col_name: h,
-          left_val: lRow[colIdx] || null,
-          right_val: null,
-          is_diff: true,
-        })),
+        cells: headers.map((h, colIdx) => {
+          const lColIdx = leftHeaders.indexOf(h);
+          return {
+            col_index: colIdx,
+            col_name: h,
+            left_val: lColIdx >= 0 ? lRow[lColIdx] || null : null,
+            right_val: null,
+            is_diff: true,
+          };
+        }),
       });
     } else if (rRow) {
       addedRows++;
       rows.push({
         key: `#${i + 1}`,
         status: 'Added',
-        cells: headers.map((h, colIdx) => ({
-          col_index: colIdx,
-          col_name: h,
-          left_val: null,
-          right_val: rRow[colIdx] || null,
-          is_diff: true,
-        })),
+        cells: headers.map((h, colIdx) => {
+          const rColIdx = rightHeaders.indexOf(h);
+          return {
+            col_index: colIdx,
+            col_name: h,
+            left_val: null,
+            right_val: rColIdx >= 0 ? rRow[rColIdx] || null : null,
+            is_diff: true,
+          };
+        }),
       });
     }
   }
