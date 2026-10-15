@@ -261,7 +261,6 @@ export const CsvCompareView: React.FC = () => {
   }, [diffResult, delimiter, getLine]);
 
   const maxCols = columns.length;
-  const columnHeaders = useMemo(() => columns.map((c) => c.name), [columns]);
 
   const colWidth = 140;
 
