@@ -12,8 +12,40 @@ export interface UpdateInfo {
   hasNativeUpdater?: boolean;
 }
 
-export const CURRENT_VERSION = '0.1.6';
+export const APP_VERSION =
+  typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.10';
+export const CURRENT_VERSION = APP_VERSION;
 export const GITHUB_REPO = 'AMSComm/AeroDiff';
+
+let cachedAppVersion: string = APP_VERSION;
+
+/**
+ * Returns dynamic app version:
+ * Resolves from native Tauri app runtime (`getVersion()`),
+ * falling back to the compile-time `APP_VERSION`.
+ */
+export async function getAppVersion(): Promise<string> {
+  const isTauri =
+    typeof window !== 'undefined' &&
+    Boolean(
+      (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ ||
+        (window as unknown as { __TAURI__?: unknown }).__TAURI__
+    );
+
+  if (isTauri) {
+    try {
+      const { getVersion } = await import('@tauri-apps/api/app');
+      const ver = await getVersion();
+      if (ver) {
+        cachedAppVersion = ver;
+        return ver;
+      }
+    } catch (err) {
+      console.warn('Tauri native getVersion error, falling back to build version:', err);
+    }
+  }
+  return cachedAppVersion;
+}
 
 export function compareVersions(v1: string, v2: string): number {
   const parts1 = v1.replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
@@ -37,6 +69,8 @@ export async function checkForAppUpdates(): Promise<UpdateInfo> {
         (window as unknown as { __TAURI__?: unknown }).__TAURI__
     );
 
+  const currentVersion = await getAppVersion();
+
   if (isTauri) {
     try {
       const { check } = await import('@tauri-apps/plugin-updater');
@@ -45,7 +79,7 @@ export async function checkForAppUpdates(): Promise<UpdateInfo> {
       if (update) {
         return {
           available: true,
-          currentVersion: CURRENT_VERSION,
+          currentVersion,
           latestVersion: update.version,
           releaseDate: update.date,
           notes: update.body || 'New features, bug fixes, and performance optimizations.',
@@ -55,8 +89,8 @@ export async function checkForAppUpdates(): Promise<UpdateInfo> {
       }
       return {
         available: false,
-        currentVersion: CURRENT_VERSION,
-        latestVersion: CURRENT_VERSION,
+        currentVersion,
+        latestVersion: currentVersion,
         isTauri: true,
         hasNativeUpdater: true,
       };
@@ -74,8 +108,8 @@ export async function checkForAppUpdates(): Promise<UpdateInfo> {
       if (res.status === 404) {
         return {
           available: false,
-          currentVersion: CURRENT_VERSION,
-          latestVersion: CURRENT_VERSION,
+          currentVersion,
+          latestVersion: currentVersion,
           isTauri,
           notes: 'No releases published yet on GitHub repository.',
         };
@@ -84,11 +118,11 @@ export async function checkForAppUpdates(): Promise<UpdateInfo> {
     }
     const data = await res.json();
     const latestTag = (data.tag_name || '').replace(/^v/, '');
-    const isNewer = compareVersions(latestTag, CURRENT_VERSION) > 0;
+    const isNewer = compareVersions(latestTag, currentVersion) > 0;
 
     return {
       available: isNewer,
-      currentVersion: CURRENT_VERSION,
+      currentVersion,
       latestVersion: latestTag,
       releaseDate: data.published_at,
       notes: data.body,
@@ -99,7 +133,7 @@ export async function checkForAppUpdates(): Promise<UpdateInfo> {
   } catch (err) {
     return {
       available: false,
-      currentVersion: CURRENT_VERSION,
+      currentVersion,
       isTauri,
       error: (err as Error).message,
     };

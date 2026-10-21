@@ -5,6 +5,7 @@
   "windows": ["*"],
   "permissions": [
     "core:default",
+    "core:app:default",
     "core:webview:default",
     "core:window:default",
     "core:event:default",

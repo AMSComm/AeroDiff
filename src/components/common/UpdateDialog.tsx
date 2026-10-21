@@ -10,7 +10,8 @@ import {
 } from 'lucide-react';
 import {
   type UpdateInfo,
-  CURRENT_VERSION,
+  APP_VERSION,
+  getAppVersion,
   checkForAppUpdates,
   installTauriUpdate,
 } from '../../utils/updater';
@@ -23,6 +24,7 @@ interface UpdateDialogProps {
 export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) => {
   const [loading, setLoading] = useState(true);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [appVersion, setAppVersion] = useState<string>(APP_VERSION);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [installSuccess, setInstallSuccess] = useState(false);
@@ -58,12 +60,16 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
   useEffect(() => {
     if (!isOpen) return;
     let active = true;
+    getAppVersion().then((ver) => {
+      if (active && ver) setAppVersion(ver);
+    });
     setLoading(true);
     setError(null);
     checkForAppUpdates()
       .then((res) => {
         if (!active) return;
         setUpdateInfo(res);
+        if (res.currentVersion) setAppVersion(res.currentVersion);
         if (res.error) setError(res.error);
       })
       .catch((err) => {
@@ -107,7 +113,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
             </div>
             <div>
               <h3 className="font-semibold text-sm text-neutral-100">AeroDiff Update</h3>
-              <p className="text-[11px] text-neutral-400">Current version: v{CURRENT_VERSION}</p>
+              <p className="text-[11px] text-neutral-400">Current version: v{updateInfo?.currentVersion || appVersion}</p>
             </div>
           </div>
           <button
@@ -195,7 +201,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({ isOpen, onClose }) =
               </div>
               <p className="font-medium text-neutral-200 mt-1">AeroDiff is up to date</p>
               <p className="text-[11px] text-neutral-500">
-                You are running version v{CURRENT_VERSION}
+                You are running version v{updateInfo?.currentVersion || appVersion}
               </p>
             </div>
           )}

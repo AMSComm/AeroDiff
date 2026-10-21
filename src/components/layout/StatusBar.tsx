@@ -1,13 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTabStore } from '../../stores/tabStore';
 import { Zap, Clock, Terminal, Sparkles } from 'lucide-react';
 import { UpdateDialog } from '../common/UpdateDialog';
-import { CURRENT_VERSION } from '../../utils/updater';
+import { APP_VERSION, getAppVersion } from '../../utils/updater';
 
 export const StatusBar: React.FC = () => {
   const [isUpdateOpen, setIsUpdateOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState<string>(APP_VERSION);
   const { getActiveTab } = useTabStore();
   const activeTab = getActiveTab();
+
+  useEffect(() => {
+    let active = true;
+    getAppVersion().then((ver) => {
+      if (active && ver) setAppVersion(ver);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const isComputing = activeTab?.isComputing ?? false;
   const computeTimeMs = activeTab?.computeTimeMs ?? 0;
@@ -108,7 +119,7 @@ export const StatusBar: React.FC = () => {
             className="hover:text-emerald-400 transition-colors flex items-center space-x-1 cursor-pointer text-[10px] text-neutral-400 hover:bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-800"
           >
             <Sparkles className="w-2.5 h-2.5 text-emerald-400" />
-            <span>v{CURRENT_VERSION}</span>
+            <span>v{appVersion}</span>
           </button>
         </div>
       </footer>

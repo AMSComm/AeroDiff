@@ -5,6 +5,41 @@ All notable changes to **AeroDiff** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.10] - 2026-10-20
+
+### 🐛 In-App Updater & Dynamic Version Synchronization
+- **Dynamic App Version Resolution**: Replaced static hardcoded version string with compile-time Vite define `__APP_VERSION__` from `package.json` and dynamic runtime `@tauri-apps/api/app` `getVersion()`.
+- **Status Bar & Update Dialog Sync**: Updated `StatusBar` and `UpdateDialog` components to dynamically query and display the active application version, preventing outdated version strings after in-app updates.
+- **Tauri App Permission**: Added `core:app:default` capability to ensure runtime version queries succeed across all desktop platforms without ACL restrictions.
+
+---
+
+## [v0.1.9] - 2026-10-15
+
+### 📊 Schema-Aware CSV Header Alignment
+- **Added/Deleted Column Detection**: Automatically detects column additions, renames, and deletions in tabular CSV view.
+- **Header Schema Alignment**: Intelligently aligns columns by name across modified tables to maintain accurate cell diff comparisons.
+
+---
+
+## [v0.1.8] - 2026-10-09
+
+### 🎨 Editor Syntax Highlighting & Mode Toggle
+- **Real-Time Syntax Highlighting**: Added syntax highlighting across multiple programming languages in editor mode.
+- **Chunk Merge Polish**: Improved interactive chunk merging stability and editor toggle responsiveness.
+
+---
+
+## [v0.1.7] - 2026-10-08
+
+### 📁 Scalable Directory Comparison Engine
+- **100k+ Files Virtualized Folder View**: Virtualized directory comparison listing for high-density directory trees.
+- **Live Progress Streaming & Cancellation**: Real-time progress updates during deep folder comparison with responsive user cancellation.
+- **Fast-Path Byte Comparison**: Parallel byte comparison with deep hash verification and symlink resolution.
+- **Filter Controls**: Added ignore line endings, whitespace, hidden folder toggle, and binary file filtering.
+
+---
+
 ## [v0.1.6] - 2026-10-03
 
 ### 🖱️ Fluid Horizontal Trackpad Scrolling & Zero-Latency Sync
