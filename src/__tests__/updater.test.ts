@@ -10,6 +10,7 @@ import {
 describe('updater utility', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   describe('compareVersions', () => {
@@ -54,7 +55,7 @@ describe('updater utility', () => {
           html_url: 'https://github.com/AMSComm/AeroDiff/releases/tag/v0.1.10',
         }),
       });
-      global.fetch = mockFetch;
+      vi.stubGlobal('fetch', mockFetch);
 
       const info = await checkForAppUpdates();
       expect(info.currentVersion).toBe(APP_VERSION);
@@ -73,7 +74,7 @@ describe('updater utility', () => {
           html_url: 'https://github.com/AMSComm/AeroDiff/releases/tag/v0.2.0',
         }),
       });
-      global.fetch = mockFetch;
+      vi.stubGlobal('fetch', mockFetch);
 
       const info = await checkForAppUpdates();
       expect(info.available).toBe(true);
