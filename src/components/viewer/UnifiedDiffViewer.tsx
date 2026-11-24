@@ -383,36 +383,72 @@ export const UnifiedDiffViewer: React.FC = () => {
                 );
               }
 
+              const prevLine = virtualRow.index > 0 ? getLine(virtualRow.index - 1) : null;
+              const nextLine = virtualRow.index < totalLines - 1 ? getLine(virtualRow.index + 1) : null;
+              const hasChunk = line.chunk_id !== null;
+              const isChunkStart =
+                hasChunk && (virtualRow.index === 0 || prevLine?.chunk_id !== line.chunk_id);
+              const isChunkEnd =
+                hasChunk && (virtualRow.index === totalLines - 1 || nextLine?.chunk_id !== line.chunk_id);
+
               const isActiveChunk =
-                line.chunk_id !== null &&
+                hasChunk &&
                 diffResult?.chunks[activeChunkIndex]?.chunk_id === line.chunk_id;
 
               const isAdded = line.line_type === 'Added';
               const isDeleted = line.line_type === 'Deleted';
               const isModified = line.line_type === 'Modified';
 
-              let rowBg = 'hover:bg-neutral-900/40 text-neutral-300';
+              let rowBg = 'text-neutral-300';
               let symbol = ' ';
               let displayedText = line.left_text ?? line.right_text ?? '';
               let spans = line.left_inline.length > 0 ? line.left_inline : line.right_inline;
 
-              if (isAdded) {
-                rowBg = 'bg-emerald-500/15 text-emerald-100 border-l-2 border-emerald-500';
+              if (!hasChunk) {
+                rowBg = 'hover:bg-neutral-900/40 text-neutral-300 border-b border-neutral-900/40';
+              } else if (isAdded) {
+                rowBg = isActiveChunk
+                  ? 'bg-emerald-500/20 text-emerald-100 border-l-2 border-emerald-400'
+                  : 'bg-emerald-500/15 text-emerald-100 border-l-2 border-emerald-500';
                 symbol = '+';
                 displayedText = line.right_text ?? '';
                 spans = line.right_inline;
               } else if (isDeleted) {
-                rowBg = 'bg-rose-500/15 text-rose-100 border-l-2 border-rose-500';
+                rowBg = isActiveChunk
+                  ? 'bg-rose-500/20 text-rose-100 border-l-2 border-rose-400'
+                  : 'bg-rose-500/15 text-rose-100 border-l-2 border-rose-500';
                 symbol = '-';
                 displayedText = line.left_text ?? '';
                 spans = line.left_inline;
               } else if (isModified) {
-                rowBg = 'bg-amber-500/15 text-amber-100 border-l-2 border-amber-500';
+                rowBg = isActiveChunk
+                  ? 'bg-amber-500/20 text-amber-100 border-l-2 border-amber-400'
+                  : 'bg-amber-500/15 text-amber-100 border-l-2 border-amber-500';
                 symbol = '~';
+              } else {
+                rowBg = 'hover:bg-neutral-900/40 text-neutral-300 border-l-2 border-transparent';
               }
 
-              if (isActiveChunk) {
-                rowBg += ' ring-1 ring-emerald-500/40';
+              // Outer chunk block borders (seamless block rendering without per-line internal dividers)
+              if (hasChunk) {
+                if (isActiveChunk) {
+                  if (isChunkStart && isChunkEnd) {
+                    rowBg +=
+                      ' border-t border-b border-emerald-500/70 shadow-[inset_0_1px_0_0_rgba(16,185,129,0.5),inset_0_-1px_0_0_rgba(16,185,129,0.5)]';
+                  } else if (isChunkStart) {
+                    rowBg += ' border-t border-emerald-500/70 shadow-[inset_0_1px_0_0_rgba(16,185,129,0.5)]';
+                  } else if (isChunkEnd) {
+                    rowBg += ' border-b border-emerald-500/70 shadow-[inset_0_-1px_0_0_rgba(16,185,129,0.5)]';
+                  }
+                } else {
+                  if (isChunkStart && isChunkEnd) {
+                    rowBg += ' border-t border-b border-neutral-800';
+                  } else if (isChunkStart) {
+                    rowBg += ' border-t border-neutral-800';
+                  } else if (isChunkEnd) {
+                    rowBg += ' border-b border-neutral-800';
+                  }
+                }
               }
 
               const isEditingThis = editingLine?.virtualIndex === virtualRow.index;
@@ -420,7 +456,7 @@ export const UnifiedDiffViewer: React.FC = () => {
               return (
                 <div
                   key={virtualRow.index}
-                  className={`absolute top-0 left-0 min-w-full w-max flex items-stretch border-b border-neutral-900/40 ${rowBg}`}
+                  className={`absolute top-0 left-0 min-w-full w-max flex items-stretch ${rowBg}`}
                   style={{
                     height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start}px)`,

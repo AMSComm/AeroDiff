@@ -425,21 +425,56 @@ export const SplitDiffViewer: React.FC = () => {
     );
   };
 
-  const getLineClass = (type: string, isActiveChunk: boolean) => {
-    let base = 'hover:bg-neutral-900/40 text-neutral-300';
-    if (type === 'Added') {
-      base = 'bg-emerald-500/15 text-emerald-100 border-l-2 border-emerald-500';
-    } else if (type === 'Deleted') {
-      base = 'bg-rose-500/15 text-rose-100 border-l-2 border-rose-500';
-    } else if (type === 'Modified') {
-      base = 'bg-amber-500/15 text-amber-100 border-l-2 border-amber-500';
-    } else if (type === 'Empty') {
-      base = 'bg-neutral-900/40 opacity-30 select-none';
+  const getLineClass = (
+    type: string,
+    isActiveChunk: boolean,
+    isChunkStart: boolean,
+    isChunkEnd: boolean,
+    hasChunk: boolean
+  ) => {
+    if (!hasChunk) {
+      return 'hover:bg-neutral-900/40 text-neutral-300 border-b border-neutral-900/40';
     }
 
-    if (isActiveChunk) {
-      base += ' ring-1 ring-emerald-500/40';
+    let base = 'text-neutral-300';
+    if (type === 'Added') {
+      base = isActiveChunk
+        ? 'bg-emerald-500/20 text-emerald-100 border-l-2 border-emerald-400'
+        : 'bg-emerald-500/15 text-emerald-100 border-l-2 border-emerald-500';
+    } else if (type === 'Deleted') {
+      base = isActiveChunk
+        ? 'bg-rose-500/20 text-rose-100 border-l-2 border-rose-400'
+        : 'bg-rose-500/15 text-rose-100 border-l-2 border-rose-500';
+    } else if (type === 'Modified') {
+      base = isActiveChunk
+        ? 'bg-amber-500/20 text-amber-100 border-l-2 border-amber-400'
+        : 'bg-amber-500/15 text-amber-100 border-l-2 border-amber-500';
+    } else if (type === 'Empty') {
+      base = 'bg-neutral-900/40 opacity-30 select-none border-l-2 border-transparent';
+    } else {
+      base = 'hover:bg-neutral-900/40 text-neutral-300 border-l-2 border-transparent';
     }
+
+    // Outer chunk block borders (seamless block rendering without per-line internal dividers)
+    if (isActiveChunk) {
+      if (isChunkStart && isChunkEnd) {
+        base +=
+          ' border-t border-b border-emerald-500/70 shadow-[inset_0_1px_0_0_rgba(16,185,129,0.5),inset_0_-1px_0_0_rgba(16,185,129,0.5)]';
+      } else if (isChunkStart) {
+        base += ' border-t border-emerald-500/70 shadow-[inset_0_1px_0_0_rgba(16,185,129,0.5)]';
+      } else if (isChunkEnd) {
+        base += ' border-b border-emerald-500/70 shadow-[inset_0_-1px_0_0_rgba(16,185,129,0.5)]';
+      }
+    } else {
+      if (isChunkStart && isChunkEnd) {
+        base += ' border-t border-b border-neutral-800';
+      } else if (isChunkStart) {
+        base += ' border-t border-neutral-800';
+      } else if (isChunkEnd) {
+        base += ' border-b border-neutral-800';
+      }
+    }
+
     return base;
   };
 
@@ -553,8 +588,16 @@ export const SplitDiffViewer: React.FC = () => {
                   );
                 }
 
+                const prevLine = virtualRow.index > 0 ? getLine(virtualRow.index - 1) : null;
+                const nextLine = virtualRow.index < totalLines - 1 ? getLine(virtualRow.index + 1) : null;
+                const hasChunk = line.chunk_id !== null;
+                const isChunkStart =
+                  hasChunk && (virtualRow.index === 0 || prevLine?.chunk_id !== line.chunk_id);
+                const isChunkEnd =
+                  hasChunk && (virtualRow.index === totalLines - 1 || nextLine?.chunk_id !== line.chunk_id);
+
                 const isActiveChunk =
-                  line.chunk_id !== null &&
+                  hasChunk &&
                   diffResult?.chunks[activeChunkIndex]?.chunk_id === line.chunk_id;
 
                 const lineType =
@@ -567,9 +610,12 @@ export const SplitDiffViewer: React.FC = () => {
                 return (
                   <div
                     key={virtualRow.index}
-                    className={`absolute top-0 left-0 min-w-full w-max flex items-stretch border-b border-neutral-900/40 ${getLineClass(
+                    className={`absolute top-0 left-0 min-w-full w-max flex items-stretch ${getLineClass(
                       lineType,
-                      isActiveChunk
+                      isActiveChunk,
+                      isChunkStart,
+                      isChunkEnd,
+                      hasChunk
                     )}`}
                     style={{
                       height: `${virtualRow.size}px`,
@@ -656,14 +702,42 @@ export const SplitDiffViewer: React.FC = () => {
                 }
 
                 const prevLine = virtualRow.index > 0 ? getLine(virtualRow.index - 1) : null;
+                const nextLine = virtualRow.index < totalLines - 1 ? getLine(virtualRow.index + 1) : null;
+                const hasChunk = line.chunk_id !== null;
                 const isChunkStart =
-                  line.chunk_id !== null &&
-                  (virtualRow.index === 0 || prevLine?.chunk_id !== line.chunk_id);
+                  hasChunk && (virtualRow.index === 0 || prevLine?.chunk_id !== line.chunk_id);
+                const isChunkEnd =
+                  hasChunk && (virtualRow.index === totalLines - 1 || nextLine?.chunk_id !== line.chunk_id);
+                const isActiveChunk =
+                  hasChunk && diffResult?.chunks[activeChunkIndex]?.chunk_id === line.chunk_id;
+
+                let gutterClass = 'absolute top-0 left-0 w-10 flex items-center justify-center';
+                if (!hasChunk) {
+                  gutterClass += ' border-b border-neutral-900/40';
+                } else if (isActiveChunk) {
+                  gutterClass += ' bg-emerald-500/10';
+                  if (isChunkStart && isChunkEnd) {
+                    gutterClass +=
+                      ' border-t border-b border-emerald-500/70 shadow-[inset_0_1px_0_0_rgba(16,185,129,0.5),inset_0_-1px_0_0_rgba(16,185,129,0.5)]';
+                  } else if (isChunkStart) {
+                    gutterClass += ' border-t border-emerald-500/70 shadow-[inset_0_1px_0_0_rgba(16,185,129,0.5)]';
+                  } else if (isChunkEnd) {
+                    gutterClass += ' border-b border-emerald-500/70 shadow-[inset_0_-1px_0_0_rgba(16,185,129,0.5)]';
+                  }
+                } else {
+                  if (isChunkStart && isChunkEnd) {
+                    gutterClass += ' border-t border-b border-neutral-800';
+                  } else if (isChunkStart) {
+                    gutterClass += ' border-t border-neutral-800';
+                  } else if (isChunkEnd) {
+                    gutterClass += ' border-b border-neutral-800';
+                  }
+                }
 
                 return (
                   <div
                     key={virtualRow.index}
-                    className="absolute top-0 left-0 w-10 flex items-center justify-center border-b border-neutral-900/40"
+                    className={gutterClass}
                     style={{
                       height: `${virtualRow.size}px`,
                       transform: `translateY(${virtualRow.start}px)`,
@@ -737,8 +811,16 @@ export const SplitDiffViewer: React.FC = () => {
                   );
                 }
 
+                const prevLine = virtualRow.index > 0 ? getLine(virtualRow.index - 1) : null;
+                const nextLine = virtualRow.index < totalLines - 1 ? getLine(virtualRow.index + 1) : null;
+                const hasChunk = line.chunk_id !== null;
+                const isChunkStart =
+                  hasChunk && (virtualRow.index === 0 || prevLine?.chunk_id !== line.chunk_id);
+                const isChunkEnd =
+                  hasChunk && (virtualRow.index === totalLines - 1 || nextLine?.chunk_id !== line.chunk_id);
+
                 const isActiveChunk =
-                  line.chunk_id !== null &&
+                  hasChunk &&
                   diffResult?.chunks[activeChunkIndex]?.chunk_id === line.chunk_id;
 
                 const lineType =
@@ -751,9 +833,12 @@ export const SplitDiffViewer: React.FC = () => {
                 return (
                   <div
                     key={virtualRow.index}
-                    className={`absolute top-0 left-0 min-w-full w-max flex items-stretch border-b border-neutral-900/40 ${getLineClass(
+                    className={`absolute top-0 left-0 min-w-full w-max flex items-stretch ${getLineClass(
                       lineType,
-                      isActiveChunk
+                      isActiveChunk,
+                      isChunkStart,
+                      isChunkEnd,
+                      hasChunk
                     )}`}
                     style={{
                       height: `${virtualRow.size}px`,

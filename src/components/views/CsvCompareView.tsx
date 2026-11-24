@@ -1003,8 +1003,16 @@ export const CsvCompareView: React.FC = () => {
                   const leftCells = line.left_text !== null ? splitCsvCells(line.left_text, delimiter) : null;
                   const rightCells = line.right_text !== null ? splitCsvCells(line.right_text, delimiter) : null;
 
+                  const prevLine = virtualRow.index > 0 ? getLine(virtualRow.index - 1) : null;
+                  const nextLine = virtualRow.index < totalLines - 1 ? getLine(virtualRow.index + 1) : null;
+                  const hasChunk = line.chunk_id !== null;
+                  const isChunkStart =
+                    hasChunk && (virtualRow.index === 0 || prevLine?.chunk_id !== line.chunk_id);
+                  const isChunkEnd =
+                    hasChunk && (virtualRow.index === totalLines - 1 || nextLine?.chunk_id !== line.chunk_id);
+
                   const isActiveChunk =
-                    line.chunk_id !== null &&
+                    hasChunk &&
                     diffResult?.chunks[activeChunkIndex]?.chunk_id === line.chunk_id;
 
                   const isModified = line.line_type === 'Modified';
@@ -1023,20 +1031,51 @@ export const CsvCompareView: React.FC = () => {
                     });
                   const showModifiedBg = isModified && hasCommonDiffCell;
 
+                  let borderClass = 'border-b border-neutral-900/50';
+                  if (hasChunk) {
+                    if (isActiveChunk) {
+                      if (isChunkStart && isChunkEnd) {
+                        borderClass =
+                          'border-t border-b border-emerald-500/70 shadow-[inset_0_1px_0_0_rgba(16,185,129,0.5),inset_0_-1px_0_0_rgba(16,185,129,0.5)] z-10';
+                      } else if (isChunkStart) {
+                        borderClass =
+                          'border-t border-emerald-500/70 shadow-[inset_0_1px_0_0_rgba(16,185,129,0.5)] z-10';
+                      } else if (isChunkEnd) {
+                        borderClass =
+                          'border-b border-emerald-500/70 shadow-[inset_0_-1px_0_0_rgba(16,185,129,0.5)] z-10';
+                      } else {
+                        borderClass = 'z-10';
+                      }
+                    } else {
+                      if (isChunkStart && isChunkEnd) {
+                        borderClass = 'border-t border-b border-neutral-800';
+                      } else if (isChunkStart) {
+                        borderClass = 'border-t border-neutral-800';
+                      } else if (isChunkEnd) {
+                        borderClass = 'border-b border-neutral-800';
+                      } else {
+                        borderClass = '';
+                      }
+                    }
+                  }
+
+                  let rowColor = 'hover:bg-neutral-900/40';
+                  if (isDeleted) {
+                    rowColor = isActiveChunk
+                      ? 'bg-rose-500/20 border-l-2 border-rose-400'
+                      : 'bg-rose-500/15 border-l-2 border-rose-500';
+                  } else if (showModifiedBg) {
+                    rowColor = isActiveChunk
+                      ? 'bg-amber-500/20 border-l-2 border-amber-400'
+                      : 'bg-amber-500/15 border-l-2 border-amber-500';
+                  } else if (leftCells === null) {
+                    rowColor = 'bg-neutral-900/60';
+                  }
+
                   return (
                     <div
                       key={virtualRow.index}
-                      className={`absolute top-0 left-0 w-full flex items-stretch border-b border-neutral-900/50 ${
-                        isActiveChunk ? 'ring-1 ring-emerald-500/60 z-10 shadow-xs' : ''
-                      } ${
-                        isDeleted
-                          ? 'bg-rose-500/15 border-l-2 border-rose-500'
-                          : showModifiedBg
-                          ? 'bg-amber-500/15 border-l-2 border-amber-500'
-                          : leftCells === null
-                          ? 'bg-neutral-900/60'
-                          : 'hover:bg-neutral-900/40'
-                      }`}
+                      className={`absolute top-0 left-0 w-full flex items-stretch ${borderClass} ${rowColor}`}
                       style={{
                         height: `${virtualRow.size}px`,
                         transform: `translateY(${virtualRow.start + 30}px)`,
@@ -1194,18 +1233,50 @@ export const CsvCompareView: React.FC = () => {
                   }
 
                   const prevLine = virtualRow.index > 0 ? getLine(virtualRow.index - 1) : null;
+                  const nextLine = virtualRow.index < totalLines - 1 ? getLine(virtualRow.index + 1) : null;
+                  const hasChunk = line.chunk_id !== null;
                   const isChunkStart =
-                    line.chunk_id !== null &&
+                    hasChunk &&
                     (virtualRow.index === 0 || (prevLine !== null && prevLine !== undefined && prevLine.chunk_id !== line.chunk_id));
+                  const isChunkEnd =
+                    hasChunk &&
+                    (virtualRow.index === totalLines - 1 || (nextLine !== null && nextLine !== undefined && nextLine.chunk_id !== line.chunk_id));
+                  const isActiveChunk =
+                    hasChunk && diffResult?.chunks[activeChunkIndex]?.chunk_id === line.chunk_id;
 
                   const isModified = line.line_type === 'Modified';
                   const isDeleted = line.line_type === 'Deleted';
                   const isAdded = line.line_type === 'Added';
 
+                  let gutterClass = 'absolute top-0 left-0 w-10 flex items-center justify-center';
+                  if (!hasChunk) {
+                    gutterClass += ' border-b border-neutral-900/50';
+                  } else if (isActiveChunk) {
+                    gutterClass += ' bg-emerald-500/10 z-10';
+                    if (isChunkStart && isChunkEnd) {
+                      gutterClass +=
+                        ' border-t border-b border-emerald-500/70 shadow-[inset_0_1px_0_0_rgba(16,185,129,0.5),inset_0_-1px_0_0_rgba(16,185,129,0.5)]';
+                    } else if (isChunkStart) {
+                      gutterClass +=
+                        ' border-t border-emerald-500/70 shadow-[inset_0_1px_0_0_rgba(16,185,129,0.5)]';
+                    } else if (isChunkEnd) {
+                      gutterClass +=
+                        ' border-b border-emerald-500/70 shadow-[inset_0_-1px_0_0_rgba(16,185,129,0.5)]';
+                    }
+                  } else {
+                    if (isChunkStart && isChunkEnd) {
+                      gutterClass += ' border-t border-b border-neutral-800';
+                    } else if (isChunkStart) {
+                      gutterClass += ' border-t border-neutral-800';
+                    } else if (isChunkEnd) {
+                      gutterClass += ' border-b border-neutral-800';
+                    }
+                  }
+
                   return (
                     <div
                       key={virtualRow.index}
-                      className="absolute top-0 left-0 w-10 flex items-center justify-center border-b border-neutral-900/50"
+                      className={gutterClass}
                       style={{
                         height: `${virtualRow.size}px`,
                         transform: `translateY(${virtualRow.start + 30}px)`,
@@ -1346,8 +1417,16 @@ export const CsvCompareView: React.FC = () => {
                   const leftCells = line.left_text !== null ? splitCsvCells(line.left_text, delimiter) : null;
                   const rightCells = line.right_text !== null ? splitCsvCells(line.right_text, delimiter) : null;
 
+                  const prevLine = virtualRow.index > 0 ? getLine(virtualRow.index - 1) : null;
+                  const nextLine = virtualRow.index < totalLines - 1 ? getLine(virtualRow.index + 1) : null;
+                  const hasChunk = line.chunk_id !== null;
+                  const isChunkStart =
+                    hasChunk && (virtualRow.index === 0 || prevLine?.chunk_id !== line.chunk_id);
+                  const isChunkEnd =
+                    hasChunk && (virtualRow.index === totalLines - 1 || nextLine?.chunk_id !== line.chunk_id);
+
                   const isActiveChunk =
-                    line.chunk_id !== null &&
+                    hasChunk &&
                     diffResult?.chunks[activeChunkIndex]?.chunk_id === line.chunk_id;
 
                   const isModified = line.line_type === 'Modified';
@@ -1366,20 +1445,51 @@ export const CsvCompareView: React.FC = () => {
                     });
                   const showModifiedBg = isModified && hasCommonDiffCell;
 
+                  let borderClass = 'border-b border-neutral-900/50';
+                  if (hasChunk) {
+                    if (isActiveChunk) {
+                      if (isChunkStart && isChunkEnd) {
+                        borderClass =
+                          'border-t border-b border-emerald-500/70 shadow-[inset_0_1px_0_0_rgba(16,185,129,0.5),inset_0_-1px_0_0_rgba(16,185,129,0.5)] z-10';
+                      } else if (isChunkStart) {
+                        borderClass =
+                          'border-t border-emerald-500/70 shadow-[inset_0_1px_0_0_rgba(16,185,129,0.5)] z-10';
+                      } else if (isChunkEnd) {
+                        borderClass =
+                          'border-b border-emerald-500/70 shadow-[inset_0_-1px_0_0_rgba(16,185,129,0.5)] z-10';
+                      } else {
+                        borderClass = 'z-10';
+                      }
+                    } else {
+                      if (isChunkStart && isChunkEnd) {
+                        borderClass = 'border-t border-b border-neutral-800';
+                      } else if (isChunkStart) {
+                        borderClass = 'border-t border-neutral-800';
+                      } else if (isChunkEnd) {
+                        borderClass = 'border-b border-neutral-800';
+                      } else {
+                        borderClass = '';
+                      }
+                    }
+                  }
+
+                  let rowColor = 'hover:bg-neutral-900/40';
+                  if (isAdded) {
+                    rowColor = isActiveChunk
+                      ? 'bg-emerald-500/20 border-l-2 border-emerald-400'
+                      : 'bg-emerald-500/15 border-l-2 border-emerald-500';
+                  } else if (showModifiedBg) {
+                    rowColor = isActiveChunk
+                      ? 'bg-amber-500/20 border-l-2 border-amber-400'
+                      : 'bg-amber-500/15 border-l-2 border-amber-500';
+                  } else if (rightCells === null) {
+                    rowColor = 'bg-neutral-900/60';
+                  }
+
                   return (
                     <div
                       key={virtualRow.index}
-                      className={`absolute top-0 left-0 w-full flex items-stretch border-b border-neutral-900/50 ${
-                        isActiveChunk ? 'ring-1 ring-emerald-500/60 z-10 shadow-xs' : ''
-                      } ${
-                        isAdded
-                          ? 'bg-emerald-500/15 border-l-2 border-emerald-500'
-                          : showModifiedBg
-                          ? 'bg-amber-500/15 border-l-2 border-amber-500'
-                          : rightCells === null
-                          ? 'bg-neutral-900/60'
-                          : 'hover:bg-neutral-900/40'
-                      }`}
+                      className={`absolute top-0 left-0 w-full flex items-stretch ${borderClass} ${rowColor}`}
                       style={{
                         height: `${virtualRow.size}px`,
                         transform: `translateY(${virtualRow.start + 30}px)`,
