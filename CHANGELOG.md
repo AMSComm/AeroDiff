@@ -5,6 +5,14 @@ All notable changes to **AeroDiff** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.12] - 2026-11-25
+
+### 🐛 Accurate Diff Chunk Seeking on Large & Shifted Files
+- **Virtual Line Offset Tracking (`virtual_start`)**: Added `virtual_start` (0-indexed virtual line position) to `DiffChunk` in both streaming and non-streaming diff engines so chunk navigation accounts for all preceding insertions and deletions.
+- **Exact Viewport Alignment**: Updated `SplitDiffViewer`, `UnifiedDiffViewer`, `CsvCompareView`, `DiffMinimap`, and `tabStore` (`nextChunk`, `prevChunk`, `syncActiveChunkFromLine`) to seek using `getChunkVirtualStart` instead of raw `left_start`, eliminating off-screen drift when jumping between diffs in large files.
+
+---
+
 ## [v0.1.11] - 2026-11-24
 
 ### 🎨 Cohesive Diff Block Rendering & High-Performance Virtualization
