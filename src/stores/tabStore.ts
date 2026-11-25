@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { TabSession, TabType, HistorySnapshot } from '../types/tab';
-import { DiffOptions, DiffResult, FolderCompareResult, CsvCompareResult, ViewMode, IgnoreWhitespace } from '../types/diff';
+import { DiffOptions, DiffResult, FolderCompareResult, CsvCompareResult, ViewMode, IgnoreWhitespace, getChunkVirtualStart } from '../types/diff';
 import {
   invokeCompareText,
   invokeCompareFiles,
@@ -798,7 +798,7 @@ export const useTabStore = create<TabState>((set, get) => ({
     if (currentLine !== undefined) {
       const TOLERANCE = 2;
       const foundIdx = chunks.findIndex((c) => {
-        const line = Math.max(0, (c.left_start || c.right_start) - 1);
+        const line = getChunkVirtualStart(c);
         return line > currentLine + TOLERANCE;
       });
       targetIndex = foundIdx !== -1 ? foundIdx : 0;
@@ -820,7 +820,7 @@ export const useTabStore = create<TabState>((set, get) => ({
       const TOLERANCE = 2;
       let foundIdx = -1;
       for (let i = chunks.length - 1; i >= 0; i--) {
-        const line = Math.max(0, (chunks[i].left_start || chunks[i].right_start) - 1);
+        const line = getChunkVirtualStart(chunks[i]);
         if (line < currentLine - TOLERANCE) {
           foundIdx = i;
           break;
@@ -944,7 +944,7 @@ export const useTabStore = create<TabState>((set, get) => ({
 
     let activeIdx = 0;
     for (let i = chunks.length - 1; i >= 0; i--) {
-      const line = Math.max(0, (chunks[i].left_start || chunks[i].right_start) - 1);
+      const line = getChunkVirtualStart(chunks[i]);
       if (line <= currentLine) {
         activeIdx = i;
         break;

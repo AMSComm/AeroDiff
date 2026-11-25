@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { useTabStore } from '../../stores/tabStore';
+import { getChunkVirtualStart } from '../../types/diff';
 
 export const DiffMinimap: React.FC = () => {
   const { getActiveTab, jumpToChunk } = useTabStore();
@@ -58,7 +59,7 @@ export const DiffMinimap: React.FC = () => {
 
     for (let idx = 0; idx < chunks.length; idx++) {
       const chunk = chunks[idx];
-      const lineIdx = chunkLineMap.get(chunk.chunk_id) ?? Math.max(0, (chunk.left_start || chunk.right_start) - 1);
+      const lineIdx = chunkLineMap.get(chunk.chunk_id) ?? getChunkVirtualStart(chunk);
       const dist = Math.abs(lineIdx - targetLine);
       if (dist < minDistance) {
         minDistance = dist;
@@ -76,7 +77,7 @@ export const DiffMinimap: React.FC = () => {
       className="w-3.5 bg-neutral-950 border-l border-neutral-900 shrink-0 relative select-none cursor-pointer"
     >
       {visibleMarkers.map(({ chunk, originalIndex }) => {
-        const lineIdx = chunkLineMap.get(chunk.chunk_id) ?? Math.max(0, (chunk.left_start || chunk.right_start) - 1);
+        const lineIdx = chunkLineMap.get(chunk.chunk_id) ?? getChunkVirtualStart(chunk);
 
         const topPercent = (lineIdx / totalLines) * 100;
         const heightPercent = Math.max(1, ((chunk.left_count + chunk.right_count) / totalLines) * 100);

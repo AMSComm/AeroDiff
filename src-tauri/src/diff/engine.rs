@@ -274,12 +274,19 @@ pub fn compute_diff(left: &str, right: &str, options: &DiffOptions) -> DiffResul
             .filter_map(|l| l.right_text.clone())
             .collect();
 
+        let virtual_start = res_lines.len()
+            + paired_results
+                .iter()
+                .position(|l| l.line_type != DiffLineType::Unchanged)
+                .unwrap_or(0);
+
         chunks.push(DiffChunk {
             chunk_id,
             left_start: chunk_left_start,
             left_count: left_lines_collected.len(),
             right_start: chunk_right_start,
             right_count: right_lines_collected.len(),
+            virtual_start,
             chunk_type,
             left_lines: left_lines_collected,
             right_lines: right_lines_collected,
@@ -831,6 +838,7 @@ pub fn compute_diff_session_from_sources(
                         left_count: old_len,
                         right_start: r_start,
                         right_count: 0,
+                        virtual_start: compact_lines.len(),
                         chunk_type: DiffChunkType::Deletion,
                         left_lines: chunk_left_lines,
                         right_lines: Vec::new(),
@@ -871,6 +879,7 @@ pub fn compute_diff_session_from_sources(
                         left_count: 0,
                         right_start: r_start,
                         right_count: new_len,
+                        virtual_start: compact_lines.len(),
                         chunk_type: DiffChunkType::Addition,
                         left_lines: Vec::new(),
                         right_lines: chunk_right_lines,
@@ -918,6 +927,7 @@ pub fn compute_diff_session_from_sources(
                         left_count: old_len,
                         right_start: r_start,
                         right_count: new_len,
+                        virtual_start: compact_lines.len(),
                         chunk_type: DiffChunkType::Modification,
                         left_lines: chunk_left_lines,
                         right_lines: chunk_right_lines,

@@ -25,9 +25,14 @@ export interface DiffChunk {
   left_count: number;
   right_start: number;
   right_count: number;
+  virtual_start?: number;
   chunk_type: DiffChunkType;
   left_lines: string[];
   right_lines: string[];
+}
+
+export function getChunkVirtualStart(chunk: DiffChunk): number {
+  return chunk.virtual_start ?? Math.max(0, (chunk.left_start || chunk.right_start) - 1);
 }
 
 export interface DiffResult {

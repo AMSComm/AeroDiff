@@ -273,4 +273,59 @@ describe('useTabStore Unit Tests', () => {
     expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(0);
     expect(useTabStore.getState().getActiveTab()?.chunkJumpNonce).toBe(nonceBefore); // NO nonce change!
   });
+
+  it('uses virtual_start instead of left_start when chunks are shifted by earlier insertions/deletions', () => {
+    const store = useTabStore.getState();
+    store.updateActiveTab({
+      diffResult: {
+        lines: [],
+        total_left_lines: 1000,
+        total_right_lines: 1200,
+        added_chunks: 1,
+        deleted_chunks: 0,
+        modified_chunks: 1,
+        is_identical: false,
+        hash_matched: false,
+        chunks: [
+          {
+            chunk_id: 0,
+            left_start: 10,
+            left_count: 0,
+            right_start: 10,
+            right_count: 200,
+            virtual_start: 9,
+            chunk_type: 'Addition',
+            left_lines: [],
+            right_lines: [],
+          },
+          {
+            chunk_id: 1,
+            left_start: 50,
+            left_count: 1,
+            right_start: 250,
+            right_count: 1,
+            virtual_start: 249,
+            chunk_type: 'Modification',
+            left_lines: [],
+            right_lines: [],
+          },
+        ],
+      },
+      activeChunkIndex: 0,
+      chunkJumpNonce: 0,
+    });
+
+    // User is at virtual line 100 (past left_start-1=49, but BEFORE virtual_start=249)
+    // nextChunk must still jump to chunk 1, not wrap to chunk 0!
+    store.nextChunk(100);
+    expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(1);
+
+    // syncActiveChunkFromLine at virtual line 100 must stay on chunk 0, not chunk 1
+    store.syncActiveChunkFromLine(100);
+    expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(0);
+
+    // At virtual line 249, syncActiveChunkFromLine switches to chunk 1
+    store.syncActiveChunkFromLine(249);
+    expect(useTabStore.getState().getActiveTab()?.activeChunkIndex).toBe(1);
+  });
 });

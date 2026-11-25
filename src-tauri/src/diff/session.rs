@@ -268,6 +268,7 @@ mod tests {
                 left_count: 1,
                 right_start: 2,
                 right_count: 1,
+                virtual_start: 1,
                 chunk_type: super::super::types::DiffChunkType::Modification,
                 left_lines: vec!["bbb".to_string()],
                 right_lines: vec!["bbx".to_string()],

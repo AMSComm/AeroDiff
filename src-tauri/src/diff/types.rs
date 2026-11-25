@@ -42,6 +42,8 @@ pub struct DiffChunk {
     pub left_count: usize,
     pub right_start: usize, // 1-indexed
     pub right_count: usize,
+    #[serde(default)]
+    pub virtual_start: usize, // 0-indexed virtual line index
     pub chunk_type: DiffChunkType,
     pub left_lines: Vec<String>,
     pub right_lines: Vec<String>,

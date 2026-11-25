@@ -389,4 +389,41 @@ mod tests {
         let merged_left = merge_chunk_right_to_left(left, right, chunk.chunk_id, &res);
         assert_eq!(merged_left, "line 1\nright only line\nline 3\n");
     }
+
+    #[test]
+    fn test_chunk_virtual_start_accounts_for_earlier_insertions() {
+        use super::super::engine::compute_diff_session_from_sources;
+        use super::super::session::{get_diff_session_manager, SourceBuffer};
+        use std::sync::Arc;
+
+        // 3 lines inserted before the second diff chunk -> left_start drifts by 3 from virtual_start
+        let left = "a\nb\nc\nd\ne\n";
+        let right = "a\ninserted1\ninserted2\ninserted3\nb\nc\nd\nMODIFIED_E\n";
+        let options = DiffOptions::default();
+
+        // 1. Non-streaming compute_diff
+        let res = compute_diff(left, right, &options);
+        assert_eq!(res.chunks.len(), 2);
+        let c0 = &res.chunks[0];
+        let c1 = &res.chunks[1];
+        assert_eq!(c0.virtual_start, 1);
+        assert_eq!(c1.left_start, 5); // 1-indexed line 5 in left
+        assert_eq!(c1.virtual_start, 7); // 0-indexed virtual line 7 (shifted by 3 inserted lines)
+        assert_eq!(res.lines[c1.virtual_start].chunk_id, Some(c1.chunk_id));
+
+        // 2. Streaming compute_diff_session_from_sources
+        let left_src = SourceBuffer::Memory(Arc::new(left.as_bytes().to_vec()));
+        let right_src = SourceBuffer::Memory(Arc::new(right.as_bytes().to_vec()));
+        let sess_res = compute_diff_session_from_sources(left_src, right_src, &options);
+        assert_eq!(sess_res.chunks.len(), 2);
+        let sc1 = &sess_res.chunks[1];
+        assert_eq!(sc1.left_start, 5);
+        assert_eq!(sc1.virtual_start, 7);
+
+        let sid = sess_res.session_id.unwrap();
+        let slice = get_diff_session_manager()
+            .get_slice(&sid, sc1.virtual_start, 1)
+            .unwrap();
+        assert_eq!(slice[0].chunk_id, Some(sc1.chunk_id));
+    }
 }

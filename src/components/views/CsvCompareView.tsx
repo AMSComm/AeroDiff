@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { CheckCircle2, ArrowRight, ArrowLeft } from 'lucide-react';
 import { registerScrollLineGetter, useTabStore } from '../../stores/tabStore';
-import { DiffOptions } from '../../types/diff';
+import { DiffOptions, getChunkVirtualStart } from '../../types/diff';
 import { MasterVerticalScrollbar } from '../viewer/MasterVerticalScrollbar';
 import { useDiffSessionLines } from '../../hooks/useDiffSessionLines';
 
@@ -510,7 +510,7 @@ export const CsvCompareView: React.FC = () => {
 
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (activeChunk) {
-        const lineIdx = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
+        const lineIdx = getChunkVirtualStart(activeChunk);
         // Align diff row directly to the top of the table viewport
         const targetOffset = Math.max(0, lineIdx * 26);
         applyScrollTop(targetOffset);
@@ -563,7 +563,7 @@ export const CsvCompareView: React.FC = () => {
     if (diffResult && diffResult.chunks.length > 0) {
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (!activeChunk) return;
-      const lineIdx = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
+      const lineIdx = getChunkVirtualStart(activeChunk);
       const line = getLine(lineIdx);
       if (line) {
         lastHorizontalSnapNonceRef.current = null;

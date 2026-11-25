@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
 import { registerScrollLineGetter, useTabStore } from '../../stores/tabStore';
-import { InlineSpan } from '../../types/diff';
+import { InlineSpan, getChunkVirtualStart } from '../../types/diff';
 import { MasterVerticalScrollbar } from './MasterVerticalScrollbar';
 import { useDiffSessionLines } from '../../hooks/useDiffSessionLines';
 
@@ -124,7 +124,7 @@ export const UnifiedDiffViewer: React.FC = () => {
 
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (activeChunk) {
-        const targetLine = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
+        const targetLine = getChunkVirtualStart(activeChunk);
         // Align the first difference line to the top of the viewport
         const targetOffset = Math.max(0, targetLine * 20);
         applyScrollTop(targetOffset);
@@ -154,7 +154,7 @@ export const UnifiedDiffViewer: React.FC = () => {
     if (diffResult && diffResult.chunks.length > 0) {
       const activeChunk = diffResult.chunks[activeChunkIndex];
       if (!activeChunk) return;
-      const targetLine = Math.max(0, (activeChunk.left_start || activeChunk.right_start) - 1);
+      const targetLine = getChunkVirtualStart(activeChunk);
       const line = getLine(targetLine);
       if (line) {
         lastHorizontalSnapNonceRef.current = null;
